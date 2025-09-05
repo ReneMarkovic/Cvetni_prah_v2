@@ -383,3 +383,4 @@ def show_results(results:dict):
 
     df_K50 = pd.DataFrame(df_K50)
     df_CP = pd.DataFrame(df_CP)
+    return [df_K50, df_CP]
