@@ -1,4 +1,4 @@
-#src/analysis.py
+# src/analysis.py
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -7,6 +7,57 @@ import os
 
 from src.utils import moving_average, path_for_export
 
+
+def perform_cross_regional_correlation(df_list, locations):
+    """
+    Performs a cross-regional correlation analysis for each pollen type.
+    
+    Args:
+        df_list (list): A list of pandas DataFrames, one for each location.
+        locations (list): A list of strings with location names.
+    
+    Returns:
+        dict: A dictionary of correlation DataFrames, one for each pollen type.
+    """
+    
+    # Check if there's enough data for correlation
+    if len(df_list) < 2:
+        print("Potrebujete podatke vsaj dveh regij za korelacijsko analizo.")
+        return {}
+    
+    # Get all unique pollen types across all dataframes by flattening the list of unique arrays
+    all_types = sorted(list(set(item for df in df_list for item in df["Type"].unique())))
+    
+    correlation_results = {}
+    
+    print("\nIzvajanje korelacijske analize med regijami po vrsti cvetnega prahu...")
+    
+    for pollen_type in all_types:
+        try:
+            # Create a dictionary to hold the time series for the current pollen type from each location
+            data_to_correlate = {}
+            for i, loc in enumerate(locations):
+                # Filter data for the current pollen type and set the date as index
+                df_loc = df_list[i][df_list[i]["Type"] == pollen_type].copy()
+                if not df_loc.empty:
+                    df_loc.set_index("Date", inplace=True)
+                    data_to_correlate[loc] = df_loc["Value"]
+            
+            # If we have data for at least two locations, create a DataFrame and compute the correlation
+            if len(data_to_correlate) >= 2:
+                df_combined = pd.DataFrame(data_to_correlate)
+                correlation_matrix = df_combined.corr()
+                correlation_results[pollen_type] = {
+                    "correlation_matrix": correlation_matrix,
+                    "combined_data": df_combined
+                }
+                print(f"  Izračunana korelacija za vrsto: {pollen_type}")
+            else:
+                print(f"  Preskok vrste '{pollen_type}': Podatki na voljo samo za eno ali nobeno regijo.")
+        except Exception as e:
+            print(f"  Napaka pri izračunu korelacije za vrsto '{pollen_type}': {e}")
+            
+    return correlation_results
 
 def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7):
     dg = df.groupby("Type")
@@ -170,6 +221,8 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7):
             x = [ix for ix in range(len(y))]
             jj_cum_sum = [np.nansum(y[0:v]) for v in range(len(y[0:365]))]
             norm = np.nanmax(jj_cum_sum)
+            total_sum = np.nansum(y) # Calculate total annual sum for the current year
+            threshold_5_percent = 0.05 * total_sum # Calculate the 5% threshold
 
             # Ensure cumulative sum is normalized properly, handle cases where no values > 0.1, 0.5, or 0.9
             if norm == 0:
@@ -178,7 +231,8 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7):
             jj_cum_sum_norm = np.array(jj_cum_sum) / norm
 
             # Find K10, K50, K90 with proper handling for empty results
-            Start_index = np.where(jj_cum_sum_norm > 0.025)[0]
+            # The start of the season is now when cumulative sum exceeds the 5% threshold
+            Start_index = np.where(np.array(jj_cum_sum) > threshold_5_percent)[0]
             End_index = np.where(jj_cum_sum_norm > 0.975)[0]
             K50_index = np.where(jj_cum_sum_norm > 0.5)[0]
 
@@ -219,6 +273,68 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7):
         json.dump(res_2, f, indent=4)
         
     return [results,res_2, colors]
+    
+def determine_season_by_reference_year(df: pd.DataFrame, location: str, pollen_type: str, reference_year: int):
+    """
+    Determines the start (5%) and end (95%) of the pollen season
+    for a specific pollen type using a reference year's total sum.
+
+    Args:
+        df (pd.DataFrame): The processed DataFrame containing pollen data.
+        location (str): The location for which the analysis is performed.
+        pollen_type (str): The specific type of pollen to analyze.
+        reference_year (int): The year used to determine the reference total annual sum.
+
+    Returns:
+        pd.DataFrame: A DataFrame with the start and end days for each year.
+    """
+    # Filter data for the specified location and pollen type
+    df_filtered = df[(df["Type"] == pollen_type)].copy()
+    if df_filtered.empty:
+        print(f"Napaka: Podatki za vrsto '{pollen_type}' niso na voljo.")
+        return None
+
+    # Calculate the total annual sum for the reference year
+    df_ref_year = df_filtered[df_filtered["Year"] == reference_year]
+    if df_ref_year.empty:
+        print(f"Napaka: Referenčno leto {reference_year} ni najdeno za vrsto '{pollen_type}'.")
+        return None
+        
+    reference_total_sum = df_ref_year["Value"].sum()
+
+    if reference_total_sum == 0:
+        print(f"Napaka: Vsota cvetnega prahu za referenčno leto {reference_year} je 0. Ne morem izračunati pragov.")
+        return None
+
+    # Calculate the 5% and 95% thresholds
+    threshold_5_percent = 0.05 * reference_total_sum
+    threshold_95_percent = 0.95 * reference_total_sum
+    
+    # Dictionary to store results
+    season_results = {"Year": [], "Start_Day": [], "End_Day": []}
+
+    # Iterate through each year and determine season start and end
+    for year, group in df_filtered.groupby("Year"):
+        if year == reference_year:
+            # We already have the reference sum, just need to find the dates
+            pass
+
+        group = group.sort_values("Date")
+        cumulative_sum = np.array([np.nansum(group["Value"].values[:i+1]) for i in range(len(group))])
+        
+        # Find the day when the cumulative sum exceeds the thresholds
+        start_day_index = np.where(cumulative_sum >= threshold_5_percent)[0]
+        end_day_index = np.where(cumulative_sum >= threshold_95_percent)[0]
+
+        start_day = int(start_day_index[0]) if len(start_day_index) > 0 else np.nan
+        end_day = int(end_day_index[0]) if len(end_day_index) > 0 else np.nan
+
+        season_results["Year"].append(year)
+        season_results["Start_Day"].append(start_day)
+        season_results["End_Day"].append(end_day)
+
+    return pd.DataFrame(season_results)
+
 
 def show_results(results:dict):
     for i in results:

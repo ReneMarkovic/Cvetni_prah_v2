@@ -3,6 +3,7 @@ import pandas as pd
 import src.data_loader as dl
 import src.analysis as an
 import src.plotting as pl
+import os
 
 def main():
     """
@@ -12,6 +13,9 @@ def main():
     """
     # List of locations to be analyzed
     locations = ["Ljubljana", "Maribor", "Primorje"]
+    
+    # A list to store processed dataframes for later cross-regional analysis
+    processed_dfs = []
 
     print("Starting the pollen analysis workflow...")
 
@@ -25,37 +29,43 @@ def main():
             # The 'rastline_skupine' dictionary is defined within the data_loader module.
             print(f"Step 1: Loading and processing data for {location}...")
             df_processed = dl.process_data(location)
-            print("Data processing complete.")
-
-            # Step 2: Generate and save global overview plots.
-            print("Step 2: Generating global data plots...")
-            pl.plot_global_data(df_processed, location)
-            print("Global data plots saved.")
-
-            # Step 3: Generate and save data completeness analysis plots.
-            print("Step 3: Analyzing and plotting data completeness...")
-            pl.plot_completeness_analysis(location)
-            print("Completeness analysis plots saved.")
-
-            # Step 4: Perform detailed, type-specific analysis.
-            print("Step 4: Performing type-specific activation analysis...")
-            results_1, results_2, colors = an.type_specific_activation(df_processed, location)
-            print("Type-specific analysis complete.")
-
-            # Step 5: Display summary results and generate detailed plots.
-            print("Step 5: Showing summary results and generating detailed plots...")
-            # The show_results function prints tables and returns them as DataFrames.
-            df_k50, df_cp = an.show_results(results_1)
             
-            print("\nK50 Trend Analysis Summary:")
-            print(df_k50)
-            
-            print("\nCumulative Pollen (CP) Trend Analysis Summary:")
-            print(df_cp)
+            # If data processing is successful, proceed with analysis
+            if df_processed is not None:
+                processed_dfs.append(df_processed) # Add processed df to the list
+                print("Data processing complete.")
 
-            # Plot the results of the second analysis part (start, end, rate, etc.)
-            pl.plot_auc_and_ci(results_2, colors, location)
-            print(f"Detailed analysis plots for {location} saved.")
+                # Step 2: Generate and save global overview plots.
+                print("Step 2: Generating global data plots...")
+                pl.plot_global_data(df_processed, location)
+                print("Global data plots saved.")
+
+                # Step 3: Generate and save data completeness analysis plots.
+                print("Step 3: Analyzing and plotting data completeness...")
+                pl.plot_completeness_analysis(location)
+                print("Completeness analysis plots saved.")
+
+                # Step 4: Perform detailed, type-specific analysis.
+                print("Step 4: Performing type-specific activation analysis...")
+                results_1, results_2, colors = an.type_specific_activation(df_processed, location)
+                print("Type-specific analysis complete.")
+
+                # Step 5: Display summary results and generate detailed plots.
+                print("Step 5: Showing summary results and generating detailed plots...")
+                # The show_results function prints tables and returns them as DataFrames.
+                df_k50, df_cp = an.show_results(results_1)
+                
+                print("\nK50 Trend Analysis Summary:")
+                print(df_k50)
+                
+                print("\nCumulative Pollen (CP) Trend Analysis Summary:")
+                print(df_cp)
+
+                # Plot the results of the second analysis part (start, end, rate, etc.)
+                pl.plot_auc_and_ci(results_2, colors, location)
+                print(f"Detailed analysis plots for {location} saved.")
+            else:
+                print(f"Data processing failed for {location}. Skipping subsequent steps.")
 
             print(f"\n--- SUCCESSFULLY FINISHED PROCESSING FOR {location.upper()} ---")
 
@@ -65,9 +75,18 @@ def main():
             print(f"An unexpected error occurred while processing {location}: {e}. Skipping this location.")
 
     print(f"\n{'='*50}")
+    print("Izvajanje korelacijske analize za vse regije...")
+    
+    # Korak 6: Izvedi korelacijsko analizo med regijami po obdelavi vseh podatkov
+    correlation_results = an.perform_cross_regional_correlation(processed_dfs, locations)
+    
+    # Korak 7: Prikaz korelacijskih grafov in časovnih vrst
+    if correlation_results:
+        pl.plot_correlation_with_time_series(correlation_results)
+    
+    print(f"\n{'='*50}")
     print("Workflow finished for all locations.")
     print(f"{'='*50}")
-
 
 if __name__ == "__main__":
     # This block ensures the main function is called only when the script is executed directly

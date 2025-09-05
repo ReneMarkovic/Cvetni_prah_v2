@@ -269,3 +269,51 @@ def plot_auc_and_ci(results, colors, location):
     plt.tight_layout()
     plt.savefig(file_path, dpi=150)
     plt.close()
+
+def plot_correlation_with_time_series(correlation_dict):
+    """
+    Plots time series and a correlation heatmap for each pollen type.
+
+    Args:
+        correlation_dict (dict): A dictionary where keys are pollen types and values
+                                 are dicts containing 'correlation_matrix' and 'combined_data'.
+    """
+    base_path = os.path.join("results", "Correlations_with_TimeSeries")
+    os.makedirs(base_path, exist_ok=True)
+    
+    for pollen_type, data in correlation_dict.items():
+        corr_df = data["correlation_matrix"]
+        df_combined = data["combined_data"]
+        
+        # Create a mask for the upper triangle
+        mask = np.triu(np.ones_like(corr_df, dtype=bool), k=0)
+        
+        fig, axes = plt.subplots(1, 2, figsize=(15, 6), gridspec_kw={'width_ratios': [1, 1]})
+        
+        # Left subplot: Time Series
+        for column in df_combined.columns:
+            axes[0].plot(df_combined.index, df_combined[column], label=column, alpha=0.7)
+        axes[0].set_title(f'Časovne vrste koncentracije cvetnega prahu za {pollen_type}')
+        axes[0].set_xlabel('Datum')
+        axes[0].set_ylabel('Koncentracija')
+        axes[0].legend(title='Lokacija')
+        axes[0].grid(True)
+        
+        # Right subplot: Correlation Heatmap
+        sns.heatmap(corr_df, 
+                    ax=axes[1], 
+                    annot=True, 
+                    cmap='coolwarm', 
+                    fmt=".2f", 
+                    linewidths=.5, 
+                    cbar_kws={'label': 'Pearsonov korelacijski koeficient'},
+                    mask=mask)
+        axes[1].set_title(f'Korelacijska matrika (zgornji trikotnik) za {pollen_type}')
+        axes[1].tick_params(axis='x', rotation=45)
+        axes[1].tick_params(axis='y', rotation=0)
+
+        plt.tight_layout()
+        file_path = os.path.join(base_path, f"{pollen_type}_correlation_with_timeseries.png")
+        plt.savefig(file_path, dpi=150)
+        plt.close()
+        print(f"  Shranjena korelacija z časovno vrsto za vrsto '{pollen_type}' v {file_path}")
