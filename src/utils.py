@@ -14,13 +14,17 @@ def generate_base_path(location):
     return base_path
 
 
-def path_for_export(lv1:str = None,lv2:str = None,lv3:str = None,name:str = None):
+def path_for_export(lv1:str = None,lv2:str = None,lv3:str = None, name:str = None, lv4:str = None, lv5:str=None):
     if lv1:
         path = os.path.join(lv1)
     if lv2:
         path = os.path.join(path,lv2)
     if lv3:
         path = os.path.join(path,lv3)
+    if lv4:
+        path = os.path.join(path,lv4)
+    if lv5:
+        path = os.path.join(path,lv5)
     if not os.path.exists(path):
         os.makedirs(path)
         

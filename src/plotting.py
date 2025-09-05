@@ -10,9 +10,9 @@ from src.utils import path_for_export, save_plot, generate_base_path
 from src.data_loader import load_raw_data
 
 
-def plot_global_data(df_processed, location):
+def plot_global_data(df_processed, location, step_name):
     base_path = generate_base_path(location)
-    print(df_processed["Type"].unique())
+    output_path = path_for_export(lv1=base_path, lv2=step_name)
 
     # Aggregate by day
     y_day = df_processed.groupby("Date").sum()
@@ -42,7 +42,7 @@ def plot_global_data(df_processed, location):
     plt.xlim([datetime.datetime(2002,1,1),datetime.datetime(2023,12,31)])
     plt.xticks(np.arange(datetime.datetime(2002,1,1),datetime.datetime(2023,12,31),step=datetime.timedelta(days=365)))
     plt.xticks(rotation=45,size=12, ha = 'right')
-    path_for_fig = os.path.join(base_path,f"{location}_Fig_01a.png")
+    path_for_fig = os.path.join(output_path,f"{location}_Fig_01a.png")
     plt.tight_layout()
     plt.savefig(path_for_fig, dpi = 150)
     plt.close()
@@ -60,7 +60,7 @@ def plot_global_data(df_processed, location):
     plt.xticks(quarterly_ticks, rotation=45, size=12, ha='right')
     plt.xticks(rotation=45,size=12, ha = 'right')
     plt.xlim([datetime.datetime(year-2,12,31),datetime.datetime(year+1,12,31)])
-    path_for_fig = os.path.join(base_path,f"{location}_Fig_01b.png")
+    path_for_fig = os.path.join(output_path,f"{location}_Fig_01b.png")
     plt.tight_layout()
     plt.savefig(path_for_fig, dpi = 150)
     plt.close()
@@ -100,16 +100,17 @@ def plot_global_data(df_processed, location):
     plt.legend(title='Tip vegetacije', bbox_to_anchor=(1.05, 1), loc='upper left')
 
 
-    path_for_fig = os.path.join(base_path,f"{location}_Fig_01c.png")
+    path_for_fig = os.path.join(output_path,f"{location}_Fig_01c.png")
     plt.tight_layout()
     plt.savefig(path_for_fig, dpi = 150)
     plt.close()
 
-def plot_completeness_analysis(location):
+def plot_completeness_analysis(location, step_name):
     """Generate and save completeness analysis by year and type for the provided location."""
     
     # Define the base path for saving plots
     base_path = generate_base_path(location)
+    output_path = path_for_export(lv1=base_path, lv2=step_name)
 
     # Load the raw data
     path_load = os.path.join("data","raw",f"{location}2024.xlsx")
@@ -167,7 +168,7 @@ def plot_completeness_analysis(location):
     ax[1].set_title("Povprečna popolnost podatkov")
 
     plt.tight_layout()
-    save_plot(base_path, location, "Letna_popolnost_podatkov")
+    save_plot(output_path, location, "Letna_popolnost_podatkov")
 
     # Monthly Completeness Heatmap
     df_raw["Year_int"] = df_raw["Year"] - df_raw["Year"].min()
@@ -194,10 +195,13 @@ def plot_completeness_analysis(location):
     ax.set_title("Popolnost podatkov glede na mesec in leto (%)")
 
     plt.tight_layout()
-    save_plot(base_path, location, "Mesečna_popolnost_podatkov")
+    save_plot(output_path, location, "Mesečna_popolnost_podatkov")
 
-def plot_auc_and_ci(results, colors, location):
+def plot_auc_and_ci(results, colors, location, step_name):
     df_res_2 = pd.DataFrame(results)
+    output_path = path_for_export(lv1 = "results", lv2 = "Graphs", lv3 = location, lv4 = step_name)
+    os.makedirs(output_path, exist_ok=True)
+    
     ##----------------------------------- Season start ------------------------------------------##
     fig, ax = plt.subplots(ncols=3,
                         nrows=1,
@@ -247,8 +251,7 @@ def plot_auc_and_ci(results, colors, location):
     ax[2].set_ylabel("Konec sezone 10-90 interval")
     ax[2].set_xticklabels(ax[2].get_xticklabels(), rotation=45, horizontalalignment='right',fontsize=6)
     #ax[2].set_ylim(-50,50)
-    base_path = path_for_export(lv1 = "Graphs",lv2 = "Cvetni_prah",lv3 = location)
-    file_path = path_for_export(lv1=base_path, name=f"AUC_CI_90_{location}a.png")
+    file_path = os.path.join(output_path,f"AUC_CI_90_{location}a.png")
     plt.savefig(file_path, dpi=150)
     plt.close()
 
@@ -264,13 +267,13 @@ def plot_auc_and_ci(results, colors, location):
         color_pallete = [colors[leto] for leto in x]
         plt.scatter([i for leto in x],dfs,color=color_pallete,s=5)
     plt.xticks(rotation=45, ha ="right")
-    base_path = path_for_export(lv1 = "Graphs",lv2 = "Cvetni_prah",lv3 = location)
-    file_path = path_for_export(lv1=base_path, name=f"AUC_CI_90_{location}b.png")
+    file_path = os.path.join(output_path,f"AUC_CI_90_{location}b.png")
     plt.tight_layout()
     plt.savefig(file_path, dpi=150)
     plt.close()
 
-def plot_correlation_with_time_series(correlation_dict):
+
+def plot_correlation_with_time_series(correlation_dict, step_name):
     """
     Plots time series and a correlation heatmap for each pollen type.
 
@@ -278,9 +281,10 @@ def plot_correlation_with_time_series(correlation_dict):
         correlation_dict (dict): A dictionary where keys are pollen types and values
                                  are dicts containing 'correlation_matrix' and 'combined_data'.
     """
-    base_path = os.path.join("results", "Correlations_with_TimeSeries")
-    os.makedirs(base_path, exist_ok=True)
-    
+    base_path = os.path.join("results", "Graphs", "Cross_regional")
+    output_path = path_for_export(lv1=base_path, lv2=step_name)
+    os.makedirs(output_path, exist_ok=True)
+
     for pollen_type, data in correlation_dict.items():
         corr_df = data["correlation_matrix"]
         df_combined = data["combined_data"]
@@ -313,7 +317,7 @@ def plot_correlation_with_time_series(correlation_dict):
         axes[1].tick_params(axis='y', rotation=0)
 
         plt.tight_layout()
-        file_path = os.path.join(base_path, f"{pollen_type}_correlation_with_timeseries.png")
+        file_path = os.path.join(output_path, f"{pollen_type}_correlation_with_timeseries.png")
         plt.savefig(file_path, dpi=150)
         plt.close()
         print(f"  Shranjena korelacija z časovno vrsto za vrsto '{pollen_type}' v {file_path}")
