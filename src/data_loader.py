@@ -68,7 +68,7 @@ def load_data(path):
     vales = []
     N = len(df_raw.sheet_names)
     for sheet in tqdm(df_raw.sheet_names,total = N, desc = "Reading sheets"):
-        print(sheet)
+        print(f"\n{sheet}")
         df = df_raw.parse(sheet, skiprows=0)
         if "Datum" in df.columns:
             pass

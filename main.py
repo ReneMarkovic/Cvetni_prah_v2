@@ -83,7 +83,11 @@ def main():
     
     # Step 6: Perform cross-regional correlation analysis after all data is processed
     correlation_results = an.perform_cross_regional_correlation(processed_dfs, locations)
-    
+
+    # Save correlation results to a structured JSON file
+    if correlation_results:
+        an.save_correlation_results_to_json(correlation_results, step_name)
+
     # Step 7: Plot the correlation heatmaps
     if correlation_results:
         pl.plot_correlation_with_time_series(correlation_results, step_name)

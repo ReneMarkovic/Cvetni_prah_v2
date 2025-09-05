@@ -1,4 +1,3 @@
-#src/plotting.py
 import os
 import datetime
 import numpy as np
@@ -202,72 +201,87 @@ def plot_auc_and_ci(results, colors, location, step_name):
     output_path = path_for_export(lv1 = "results", lv2 = "Graphs", lv3 = location, lv4 = step_name)
     os.makedirs(output_path, exist_ok=True)
     
+    print(f"Plotting AUC and CI for {location} PANEL A...")
     ##----------------------------------- Season start ------------------------------------------##
     fig, ax = plt.subplots(ncols=3,
                         nrows=1,
-                        figsize=(12, 4),
+                        figsize=(12, 8),
                         gridspec_kw={'width_ratios': [1, 1, 1]},
                         dpi=150,
                         facecolor='lightblue')
     fig.subplots_adjust(hspace=0.5, wspace=0.5)
-    var = "K10"
+    var = "Start"
     mean_values = df_res_2.groupby('Type')[var].mean().sort_values()
     iterate = mean_values.index.values
     sns.boxplot(data = df_res_2,x = "Type",y = var, order=mean_values.index,fliersize=0,ax = ax[0])
     for i,tip in enumerate(iterate):
-        dfs = df_res_2[df_res_2["Type"]==tip].sort_values("Year")[var].values
-        x = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["Year"].values   
-        color_pallete = [colors[leto] for leto in x]
-        ax[0].scatter([i for leto in x],dfs,color=color_pallete,s=5)
+        # Filter rows to ensure both 'Year' and 'var' are not NaN
+        df_filtered = df_res_2[(df_res_2["Type"]==tip)].dropna(subset=["Year", var])
+        dfs = df_filtered.sort_values("Year")[var].values
+        x = df_filtered.sort_values("Year")["Year"].values
+        if len(x) > 0 and len(dfs) > 0:
+            color_pallete = [colors[leto] for leto in x]
+            ax[0].scatter([i for leto in x],dfs,color=color_pallete,s=5)
     ax[0].set_xlabel("Vrsta")
-    ax[0].set_ylabel("Pričetek sezone K10")
+    ax[0].set_ylabel("Pričetek sezone")
     ax[0].set_xticklabels(ax[0].get_xticklabels(), rotation=45, horizontalalignment='right',fontsize=6)
+    print(f"Plotting AUC and CI for {location} PANEL B...")
     ##----------------------------------- Season End ------------------------------------------##
-    var = "K90"
+    var = "End"
     iterate = mean_values.index.values
     sns.boxplot(data = df_res_2,x = "Type",y = var, order=mean_values.index,fliersize=0,ax = ax[1])
     for i,tip in enumerate(iterate):
-        dfs = df_res_2[df_res_2["Type"]==tip].sort_values("Year")[var].values
-        x = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["Year"].values   
-        color_pallete = [colors[leto] for leto in x]
-        ax[1].scatter([i for leto in x],dfs,color=color_pallete,s=5)
+        # Filter rows to ensure both 'Year' and 'var' are not NaN
+        df_filtered = df_res_2[(df_res_2["Type"]==tip)].dropna(subset=["Year", var])
+        dfs = df_filtered.sort_values("Year")[var].values
+        x = df_filtered.sort_values("Year")["Year"].values
+        if len(x) > 0 and len(dfs) > 0:
+            color_pallete = [colors[leto] for leto in x]
+            ax[1].scatter([i for leto in x],dfs,color=color_pallete,s=5)
 
     ax[1].set_xlabel("Vrsta")
-    ax[1].set_ylabel("Konec sezone K90")
+    ax[1].set_ylabel("Konec sezone")
     ax[1].set_xticklabels(ax[1].get_xticklabels(), rotation=45, horizontalalignment='right',fontsize=6)
 
 
     ##----------------------------------- Order of change------------------------------------------##
-    var = "10-90 interval"
+    print(f"Plotting AUC and CI for {location} PANEL C...")
+    var = "Sart-End interval"
     iterate = mean_values.index.values
     mean_K10 = df_res_2.groupby('Type')[var].mean().sort_values().to_dict()
-    print(mean_K10)
     for i,tip in enumerate(iterate):
-        dfs = df_res_2[df_res_2["Type"]==tip].sort_values("Year")[var].values
-        dfs = dfs - mean_K10[tip]
-        x = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["Year"].values
-        ax[2].scatter([i for leto in x],dfs,color=color_pallete,s=5,alpha = 0.3)
+        # Filter rows to ensure both 'Year' and 'var' are not NaN
+        df_filtered = df_res_2[(df_res_2["Type"]==tip)].dropna(subset=["Year", var])
+        dfs = df_filtered.sort_values("Year")[var].values
+        x = df_filtered.sort_values("Year")["Year"].values
+        if len(dfs) > 0 and len(x) > 0:
+            color_pallete = [colors[leto] for leto in x]
+            ax[2].scatter([i for leto in x],dfs,color=color_pallete,s=5,alpha = 0.3)
     ax[2].set_xlabel("Vrsta")
-    ax[2].set_ylabel("Konec sezone 10-90 interval")
+    ax[2].set_ylabel("Interval Start-End")
     ax[2].set_xticklabels(ax[2].get_xticklabels(), rotation=45, horizontalalignment='right',fontsize=6)
     #ax[2].set_ylim(-50,50)
-    file_path = os.path.join(output_path,f"AUC_CI_90_{location}a.png")
+    file_path = os.path.join(output_path,f"AUC_CI_{location}a.png")
     plt.savefig(file_path, dpi=150)
     plt.close()
 
     ##----------------------------------- Rate ------------------------------------------------##
+    print(f"Plotting AUC and CI for {location} RATE...")
     plt.figure(figsize=(8,4),dpi=150, facecolor='lightblue')
-    plt.title("Rate of change")
+    plt.title("Hitrost spremembe")
     mean_values = df_res_2.groupby('Type')['rate'].mean().sort_values()
     iterate = mean_values.index.values
     sns.boxplot(data = df_res_2,x = "Type",y = "rate", order=mean_values.index,fliersize=0)
     for i,tip in enumerate(iterate):
-        dfs = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["rate"].values
-        x = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["Year"].values   
-        color_pallete = [colors[leto] for leto in x]
-        plt.scatter([i for leto in x],dfs,color=color_pallete,s=5)
+        # Filter rows to ensure both 'Year' and 'rate' are not NaN
+        df_filtered = df_res_2[(df_res_2["Type"]==tip)].dropna(subset=["Year", "rate"])
+        dfs = df_filtered.sort_values("Year")["rate"].values
+        x = df_filtered.sort_values("Year")["Year"].values
+        if len(x) > 0 and len(dfs) > 0:
+            color_pallete = [colors[leto] for leto in x]
+            plt.scatter([i for leto in x],dfs,color=color_pallete,s=5)
     plt.xticks(rotation=45, ha ="right")
-    file_path = os.path.join(output_path,f"AUC_CI_90_{location}b.png")
+    file_path = os.path.join(output_path,f"AUC_CI_{location}b.png")
     plt.tight_layout()
     plt.savefig(file_path, dpi=150)
     plt.close()
