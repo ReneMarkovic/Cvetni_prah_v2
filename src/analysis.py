@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import json
 import os
-
+from src.utils import path_for_export, save_plot, generate_base_path
 from src.utils import moving_average, path_for_export
 
 def perform_cross_regional_correlation(df_list, locations):
@@ -57,11 +57,58 @@ def perform_cross_regional_correlation(df_list, locations):
             
     return correlation_results
 
-def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7):
+
+def determine_season_by_reference_year(df: pd.DataFrame, location: str, pollen_type: str, reference_year: int, start_th = 0.025, end_th = 0.975):
+
+    # Filter data for the specified location and pollen type
+    df_filtered = df[(df["Type"] == pollen_type)].copy()
+    print(f"    - Processing pollen type: {pollen_type} for location: {location}")
+    if df_filtered.empty:
+        print(f"Napaka: Podatki za vrsto '{pollen_type}' niso na voljo.")
+        return None
+
+    # Calculate the total annual sum for the reference year
+    df_ref_year = df_filtered[df_filtered["Year"] == reference_year]
+    print(f"    - Reference year: {reference_year}")
+    if df_ref_year.empty:
+        print(f"Napaka: Referenčno leto {reference_year} ni najdeno za vrsto '{pollen_type}'.")
+        return None
+        
+    reference_total_sum = df_ref_year["Value"].apply(np.nansum).sum()
+    print(f"    - Total pollen sum for reference year {reference_year}: {reference_total_sum}")
+    if reference_total_sum == 0:
+        print(f"Napaka: Vsota cvetnega prahu za referenčno leto {reference_year} je 0. Ne morem izračunati pragov.")
+        return None
+
+    # Calculate the start and end thresholds
+    threshold_start_percent = start_th * reference_total_sum
+    threshold_end_percent = end_th * reference_total_sum
+    return {"Reference year": reference_year, "Total Sum": float(reference_total_sum), "2.5% Threshold": float(threshold_start_percent), "97.5% Threshold": float(threshold_end_percent)}
+
+
+def activation_reference(df: pd.DataFrame, location:str, reference_year: int = 2004):
+    pollen_types = df["Type"].unique()
+    pollen_type_season_reference = {}
+    for pollen_type in pollen_types:
+        print("    - Determining season thresholds for pollen type:", pollen_type)
+        result = determine_season_by_reference_year(df, location, pollen_type, reference_year)
+        print(result)
+        if result is not None:
+            pollen_type_season_reference[pollen_type] = result
+    file_path = generate_base_path(location)
+    #save to json file
+    with open(os.path.join(file_path, "season_reference.json"), 'w') as f:
+        json.dump(pollen_type_season_reference, f, indent=4)
+    print(f"    - Season reference data saved to '{file_path}'")
+    return pollen_type_season_reference
+
+def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_name:str = "default", reference_year: int = 2004):
     # Združevanje po 'Type' namesto po 'Skupina'
     dg = df.groupby("Type")
     cmap = plt.get_cmap("RdBu")
-
+    print("    - Generating activation reference...")
+    act_reference = activation_reference(df, location=location, reference_year=reference_year)
+    print(act_reference)
     # Ustvarjanje barvnega slovarja za vsa leta v naboru podatkov
     all_years = sorted(df["Year"].unique())
     colors = {year: cmap(i / len(all_years)) for i, year in enumerate(all_years)}
@@ -73,6 +120,8 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7):
     w = ma
     print("\tStep 1: Performing type-specific activation analysis...")
     for i,ii in dg:
+        base_path = generate_base_path(location)
+        output_path = path_for_export(lv1=base_path, lv2=step_name)
         list_y = []
         list_y_smooth = []
         list_y_cumsum = []
@@ -101,8 +150,8 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7):
             yy = np.array([np.nansum(y[0:v]) for v in range(len(y))])
             list_y_cumsum.append(yy)
             ax[0,2].plot(xx,yy,label=f"{j}",alpha = 0.5, color=colors[j],linewidth = lw_1)
-            
-            norm = np.nanmax(yy)
+
+            norm = act_reference[i]["Total Sum"] if i in act_reference else 1.0
             if norm == 0:
                 norm = 1.0
             yy_norm = yy/norm
@@ -176,9 +225,9 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7):
             results[i]["CP"]={"Trend":np.nan, "Intercept":np.nan, "R2":np.nan, "min(CP)":np.nan, "avg(CP)":np.nan, "max(CP)":np.nan}
         ax[1,2].scatter([leto for leto in K50 if not np.isnan(K50[leto])], [max_CP[leto] for leto in K50 if not np.isnan(K50[leto])], color=[colors[leto] for leto in K50 if not np.isnan(K50[leto])])
         
-        for ix in range(0,2):
-            for iy in range(0,3):
-                ax[ix,iy].set_xlim(2002,2023) # Set a fixed xlim for year plots
+        #for ix in range(0,2):
+        #    for iy in range(0,3):
+        #        ax[ix,iy].set_xlim(2002,2023) # Set a fixed xlim for year plots
         
         
         print("\tStep 5: Finalizing and saving plots...")
@@ -203,10 +252,10 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7):
         valid_y_50 = [y for y in K50 if not np.isnan(y)]
         if len(valid_y_50) > 0:
             ax[1,0].text(np.nanmean(valid_y_50)-50,0.51,"50%",color="green")
-            ax[1,0].set_xlim(np.nanmean(valid_y_50)-50,np.nanmean(valid_y_50)+50)
+            # ax[1,0].set_xlim(np.nanmean(valid_y_50)-50,np.nanmean(valid_y_50)+50)
         else:
             ax[1,0].text(100,0.51,"50%",color="green")
-        ax[1,0].set_ylim(-0.01,1.01)
+        #ax[1,0].set_ylim(-0.01,1.01)
 
         ax[1,1].set_ylabel("K50",fontsize = 6)
         ax[1,1].set_xlabel("Leto",fontsize = 6)
@@ -215,7 +264,7 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7):
         ax[1,2].set_xlabel("Leto",fontsize = 6)
         
         plt.tight_layout()
-        file_path = path_for_export(lv1 = "results", lv2  = f"{location}", name = f"02_{i}.png")
+        file_path = os.path.join(output_path,f"02_{i}_{location}.png")
         plt.savefig(file_path)
         plt.close()
         
@@ -292,68 +341,6 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7):
         json.dump(res_2, f, indent=4)
         
     return [results,res_2, colors]
-    
-def determine_season_by_reference_year(df: pd.DataFrame, location: str, pollen_type: str, reference_year: int):
-    """
-    Determines the start (5%) and end (95%) of the pollen season
-    for a specific pollen type using a reference year's total sum.
-
-    Args:
-        df (pd.DataFrame): The processed DataFrame containing pollen data.
-        location (str): The location for which the analysis is performed.
-        pollen_type (str): The specific type of pollen to analyze.
-        reference_year (int): The year used to determine the reference total annual sum.
-
-    Returns:
-        pd.DataFrame: A DataFrame with the start and end days for each year.
-    """
-    # Filter data for the specified location and pollen type
-    df_filtered = df[(df["Type"] == pollen_type)].copy()
-    if df_filtered.empty:
-        print(f"Napaka: Podatki za vrsto '{pollen_type}' niso na voljo.")
-        return None
-
-    # Calculate the total annual sum for the reference year
-    df_ref_year = df_filtered[df_filtered["Year"] == reference_year]
-    if df_ref_year.empty:
-        print(f"Napaka: Referenčno leto {reference_year} ni najdeno za vrsto '{pollen_type}'.")
-        return None
-        
-    reference_total_sum = df_ref_year["Value"].sum()
-
-    if reference_total_sum == 0:
-        print(f"Napaka: Vsota cvetnega prahu za referenčno leto {reference_year} je 0. Ne morem izračunati pragov.")
-        return None
-
-    # Calculate the 5% and 95% thresholds
-    threshold_5_percent = 0.05 * reference_total_sum
-    threshold_95_percent = 0.95 * reference_total_sum
-    
-    # Dictionary to store results
-    season_results = {"Year": [], "Start_Day": [], "End_Day": []}
-
-    # Iterate through each year and determine season start and end
-    for year, group in df_filtered.groupby("Year"):
-        if year == reference_year:
-            # We already have the reference sum, just need to find the dates
-            pass
-
-        group = group.sort_values("Date")
-        cumulative_sum = np.array([np.nansum(group["Value"].values[:i+1]) for i in range(len(group))])
-        
-        # Find the day when the cumulative sum exceeds the thresholds
-        start_day_index = np.where(cumulative_sum >= threshold_5_percent)[0]
-        end_day_index = np.where(cumulative_sum >= threshold_95_percent)[0]
-
-        start_day = int(start_day_index[0]) if len(start_day_index) > 0 else np.nan
-        end_day = int(end_day_index[0]) if len(end_day_index) > 0 else np.nan
-
-        season_results["Year"].append(year)
-        season_results["Start_Day"].append(start_day)
-        season_results["End_Day"].append(end_day)
-
-    return pd.DataFrame(season_results)
-
 
 def save_correlation_results_to_json(correlation_dict, step_name):
     """
@@ -377,7 +364,6 @@ def save_correlation_results_to_json(correlation_dict, step_name):
         json.dump(json_data, f, indent=4)
         
     print(f"Correlation results saved to '{file_path}'")
-
 
 def show_results(results:dict):
     for i in results:

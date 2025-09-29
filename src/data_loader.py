@@ -120,12 +120,18 @@ def process_data(location):
     path = os.path.join("data", "raw", f"{location}2024.xlsx")
     if not os.path.exists(path):
         raise FileNotFoundError(f"Data file not found at {path}")
-
-    df_processed = load_data(path)
+    #check if os.path.join(output_path, f"{location}_processed.csv") exists, if so, load it instead of processing again
+    processed_file_path = os.path.join("data", "processed", f"{location}_processed.csv")
+    if os.path.exists(processed_file_path):
+        print(f"Loading processed data from {processed_file_path}...")
+        df_processed = pd.read_csv(processed_file_path)
+        df_processed["Date"] = pd.to_datetime(df_processed["Date"], format="%Y-%m-%d")
+    else:
+        print(f"Processing raw data from {path}...")    
+        df_processed = load_data(path)
     
-    # Save processed data to a CSV file
-    output_path = os.path.join("Data", "processed")
-    os.makedirs(output_path, exist_ok=True)
-    df_processed.to_csv(os.path.join(output_path, f"{location}_processed.csv"), index=False)
-    
+        # Save processed data to a CSV file
+        output_path = os.path.join("data", "processed")
+        os.makedirs(output_path, exist_ok=True)
+        df_processed.to_csv(os.path.join(output_path, f"{location}_processed.csv"), index=False)
     return df_processed

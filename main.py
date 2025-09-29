@@ -5,6 +5,15 @@ import src.analysis as an
 import src.plotting as pl
 import os
 
+S1 = True
+S2 = False
+S3 = False
+S4 = True
+S5 = True
+S6 = True
+S7 = True
+
+
 def main():
     """
     Main function to run the complete pollen data analysis workflow.
@@ -35,22 +44,26 @@ def main():
                 print("Data processing complete.")
 
                 # Step 2: Generate and save global overview plots.
-                step_name = "Step_2_Global_Overview"
-                print(f"Step 2: Generating global data plots to '{step_name}'...")
-                pl.plot_global_data(df_processed, location, step_name)
-                print("Global data plots saved.")
+                if S2:
+                    step_name = "Step_2_Global_Overview"
+                    print(f"Step 2: Generating global data plots to '{step_name}'...")
+                    pl.plot_global_data(df_processed, location, step_name)
+                    print("Global data plots saved.")
 
                 # Step 3: Generate and save data completeness analysis plots.
-                step_name = "Step_3_Completeness"
-                print(f"Step 3: Analyzing and plotting data completeness to '{step_name}'...")
-                pl.plot_completeness_analysis(location, step_name)
-                print("Completeness analysis plots saved.")
-
-                # Step 4: Perform detailed, type-specific analysis.
-                step_name = "Step_4_Type_Specific"
-                print(f"Step 4: Performing type-specific activation analysis...")
-                results_1, results_2, colors = an.type_specific_activation(df_processed, location)
-                print("Type-specific analysis complete.")
+                if S3:
+                    step_name = "Step_3_Completeness"
+                    print(f"Step 3: Analyzing and plotting data completeness to '{step_name}'...")
+                    pl.plot_completeness_analysis(location, step_name)
+                    print("Completeness analysis plots saved.")
+                
+                if S4:
+                    # Step 4: Perform detailed, type-specific analysis.
+                    step_name = "Step_4_Type_Specific"
+                    print(f"Step 4: Performing type-specific activation analysis...")
+                    results_1, results_2, colors = an.type_specific_activation(df_processed, location, step_name=step_name)
+                    print("Type-specific analysis complete.")
+                
 
                 # Step 5: Display summary results and generate detailed plots.
                 step_name = "Step_5_Detailed_Plots"
