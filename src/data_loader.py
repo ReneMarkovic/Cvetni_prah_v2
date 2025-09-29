@@ -1,8 +1,9 @@
-#src/data_loader.py
 import os
 import pandas as pd
 from tqdm import tqdm
 import datetime
+from prophet import Prophet
+import numpy as np
 
 rastline_skupine = {
     'JELŠA': 'Drevesa',
@@ -25,6 +26,21 @@ rastline_skupine = {
     'OLJKA': 'Drevesa'
 }
 
+def impute_missing_with_prophet(dates, y):
+    df = pd.DataFrame({'ds': dates, 'y': y})
+    mask = ~np.isnan(y)
+    df_train = df[mask]
+    # Prophet requires at least 5 points to fit
+    if len(df_train) < 5:
+        y[np.isnan(y)] = np.nanmean(y)
+        return y
+    m = Prophet(yearly_seasonality=True, daily_seasonality=False)
+    m.fit(df_train)
+    future = df[['ds']]
+    forecast = m.predict(future)
+    y_pred = forecast['yhat'].values
+    y[np.isnan(y)] = y_pred[np.isnan(y)]
+    return y
 
 def load_raw_data(path):
     df_raw = pd.ExcelFile(path)
@@ -104,11 +120,29 @@ def load_data(path):
     df_processed["Value"] = df_processed["Value"].progress_apply(lambda x: str(x).replace(",",""))
     df_processed["Value"] = pd.to_numeric(df_processed["Value"],errors="coerce")
 
-    #replace NaN values with 0
-    df_processed["Value"] = df_processed["Value"].fillna(0)
+    # --- Impute missing daily values with Prophet for each Type/Year ---
+    processed_frames = []
+    for pollen_type in tqdm(df_processed["Type"].unique(), desc="Prophet imputation"):
+        for year in df_processed["Year"].unique():
+            sub = df_processed[(df_processed["Type"] == pollen_type) & (df_processed["Year"] == year)].copy()
+            if len(sub) == 0:
+                continue
+            dates_arr = sub["Date"].values
+            y_arr = sub["Value"].values.astype(float)
+            if np.any(np.isnan(y_arr)):
+                y_arr = impute_missing_with_prophet(dates_arr, y_arr)
+                sub["Value"] = y_arr
+            processed_frames.append(sub)
+    df_final = pd.concat(processed_frames, ignore_index=True)
 
-    df_processed["Skupina"] = df_processed["Type"].progress_apply(lambda x: rastline_skupine[x])
-    return df_processed
+    # Now fill any remaining NaN with zero (should be rare)
+    df_final["Value"] = df_final["Value"].fillna(0)
+
+    # Add group info
+    tqdm.pandas(desc="Assigning Skupina")
+    df_final["Skupina"] = df_final["Type"].progress_apply(lambda x: rastline_skupine.get(x, "Unknown"))
+
+    return df_final
 
 def process_data(location):
     """

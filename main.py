@@ -6,8 +6,8 @@ import src.plotting as pl
 import os
 
 S1 = True
-S2 = False
-S3 = False
+S2 = True
+S3 = True
 S4 = True
 S5 = True
 S6 = True
@@ -62,6 +62,7 @@ def main():
                     step_name = "Step_4_Type_Specific"
                     print(f"Step 4: Performing type-specific activation analysis...")
                     results_1, results_2, colors = an.type_specific_activation(df_processed, location, step_name=step_name)
+                    an.auc_and_ci_start_stop(df_processed, results_1, location, step_name=step_name)
                     print("Type-specific analysis complete.")
                 
 

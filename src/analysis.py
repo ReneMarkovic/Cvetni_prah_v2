@@ -5,6 +5,7 @@ import json
 import os
 from src.utils import path_for_export, save_plot, generate_base_path
 from src.utils import moving_average, path_for_export
+import seaborn as sns
 
 def perform_cross_regional_correlation(df_list, locations):
     """
@@ -57,7 +58,6 @@ def perform_cross_regional_correlation(df_list, locations):
             
     return correlation_results
 
-
 def determine_season_by_reference_year(df: pd.DataFrame, location: str, pollen_type: str, reference_year: int, start_th = 0.025, end_th = 0.975):
 
     # Filter data for the specified location and pollen type
@@ -83,8 +83,7 @@ def determine_season_by_reference_year(df: pd.DataFrame, location: str, pollen_t
     # Calculate the start and end thresholds
     threshold_start_percent = start_th * reference_total_sum
     threshold_end_percent = end_th * reference_total_sum
-    return {"Reference year": reference_year, "Total Sum": float(reference_total_sum), "2.5% Threshold": float(threshold_start_percent), "97.5% Threshold": float(threshold_end_percent)}
-
+    return {"Reference year": reference_year, "Total Sum": float(reference_total_sum), "Threshold Start": float(threshold_start_percent), "Threshold End": float(threshold_end_percent)}
 
 def activation_reference(df: pd.DataFrame, location:str, reference_year: int = 2004):
     pollen_types = df["Type"].unique()
@@ -102,170 +101,295 @@ def activation_reference(df: pd.DataFrame, location:str, reference_year: int = 2
     print(f"    - Season reference data saved to '{file_path}'")
     return pollen_type_season_reference
 
+def plot_daily_values(ax, x, list_y, mean_y, colors, years, lw_1, lw_2, title):
+    for idx, y in enumerate(list_y):
+        ax.plot(x, y, label=f"{years[idx]}", alpha=0.7, color=colors[years[idx]], linewidth=lw_1)
+    ax.plot(x, mean_y, label="Povprečje", c="black", linewidth=lw_2, zorder=3)
+    ax.set_title(title, fontsize=15)
+    ax.set_ylabel("Količina cvetnega prahu [enote]", fontsize=13)
+    ax.set_xlabel("Dan v letu", fontsize=13)
+    ax.grid(True, linestyle='--', alpha=0.5)
+
+def plot_aggregated_yearly(ax, years, list_y, colors, lw_1, lw_2, title):
+    """
+    Za vsak vnos v list_y (vsako leto) nariši agregirano (kumulativno) vsoto skozi leto.
+    Prikaži tudi povprečje kot debelejšo črto.
+    """
+    cum_sums = []
+    for idx, y in enumerate(list_y):
+        cum_sum = np.nancumsum(y)
+        cum_sums.append(cum_sum)
+        ax.plot(range(len(cum_sum)), cum_sum, label=f"{years[idx]}", color=colors[years[idx]], linewidth=lw_1, alpha=0.7)
+    # Povprečna kumulativna vsota skozi leto (črna črta)
+    mean_cum = np.nanmean(np.array(cum_sums), axis=0)
+    ax.plot(range(len(mean_cum)), mean_cum, color="black", linewidth=lw_2, label="Povprečje", zorder=3)
+    ax.set_title(title, fontsize=15)
+    ax.set_ylabel("Agregirana vsota [enote]", fontsize=13)
+    ax.set_xlabel("Dan v letu", fontsize=13)
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.legend(fontsize=8, ncol=2, loc='upper left')
+
+def plot_normalized_yearly(ax, years, list_y, colors, reference_total, lw_1, lw_2, title, reference_year):
+    """
+    Za vsak vnos v list_y (vsako leto) nariši normirano kumulativno vsoto skozi dni v letu.
+    Povprečje podaj kot črno črto.
+    """
+    norm_cumsums = []
+    starts, ends, k50s = [], [], []  # Za shranjevanje indeksov
+
+    for idx, y in enumerate(list_y):
+        cum_sum = np.nancumsum(y)
+        norm_cum = cum_sum / reference_total if reference_total > 0 else np.zeros_like(cum_sum)
+        norm_cumsums.append(norm_cum)
+        ax.plot(range(len(norm_cum)), norm_cum, label=f"{years[idx]}", color=colors[years[idx]], linewidth=lw_1, alpha=0.7)
+        # Izračun začetek/konec/K50
+        # Začetek: ko kumulativna vsota preseže 5% normirane vsote
+        start_idx = np.where(norm_cum > 0.05)[0]
+        starts.append(start_idx[0] if len(start_idx) > 0 else np.nan)
+        # Konec: ko kumulativna vsota preseže 97.5% normirane vsote
+        end_idx = np.where(norm_cum > 0.975)[0]
+        ends.append(end_idx[0] if len(end_idx) > 0 else np.nan)
+        # K50: ko kumulativna vsota preseže 50% normirane vsote
+        k50_idx = np.where(norm_cum > 0.5)[0]
+        k50s.append(k50_idx[0] if len(k50_idx) > 0 else np.nan)
+
+    # Povprečje normirane kumulativne vsote
+    mean_norm_cum = np.nanmean(np.array(norm_cumsums), axis=0)
+    ax.plot(range(len(mean_norm_cum)), mean_norm_cum, color="black", linewidth=lw_2, label="Povprečje", zorder=3)
+    ax.set_title(f"{title} (referenčno leto {reference_year})", fontsize=15)
+    ax.set_ylabel("Normirana agregirana vsota", fontsize=13)
+    ax.set_xlabel("Dan v letu", fontsize=13)
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.legend(fontsize=8, ncol=2, loc='upper left')
+
+    return starts, ends, k50s
+
+def plot_season_start(ax, years, starts, colors, lw_1, title):
+    # scatter in črta
+    ax.scatter(years, starts, color=[colors[y] for y in years], s=80, label="Začetek sezone")
+    #ax.plot(years, starts, color="black", linewidth=lw_1, alpha=0.6)
+
+    # Linearni fit (trend)
+    fit_mask = ~np.isnan(starts)
+    fit_years = np.array(years)[fit_mask]
+    fit_starts = np.array(starts)[fit_mask]
+    if len(fit_years) > 1:
+        m, b = np.polyfit(fit_years, fit_starts, 1)
+        trend = m * fit_years + b
+        r2 = np.corrcoef(fit_years, fit_starts)[0, 1] ** 2
+        ax.plot(fit_years, trend, color="crimson", linestyle="--", linewidth=2, label="Trend")
+        # Pripis v graf
+        ax.text(0.05, 0.90, fr"Trend: $y = {m:.2f}x + {b:.1f}$", transform=ax.transAxes, fontsize=12)
+        ax.text(0.05, 0.80, fr"$R^2 = {r2:.3f}$", transform=ax.transAxes, fontsize=12)
+    ax.set_title(title, fontsize=15)
+    ax.set_ylabel("Dan v letu (začetek)", fontsize=13)
+    ax.set_xlabel("Leto", fontsize=13)
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.legend(fontsize=9, loc='best')
+
+def plot_season_end(ax, years, ends, colors, lw_1, title):
+    """
+    Prikaz konca sezone (npr. K90) skozi leta z linearno fit premico in R².
+    """
+    ax.scatter(years, ends, color=[colors[y] for y in years], s=80, label="Konec sezone")
+    #ax.plot(years, ends, color="black", linewidth=lw_1, alpha=0.6)
+
+    # Linearni trend (fit)
+    fit_mask = ~np.isnan(ends)
+    fit_years = np.array(years)[fit_mask]
+    fit_ends = np.array(ends)[fit_mask]
+    if len(fit_years) > 1:
+        m, b = np.polyfit(fit_years, fit_ends, 1)
+        trend = m * fit_years + b
+        r2 = np.corrcoef(fit_years, fit_ends)[0, 1] ** 2
+        ax.plot(fit_years, trend, color="crimson", linestyle="--", linewidth=2, label="Trend")
+        ax.text(0.05, 0.90, fr"Trend: $y = {m:.2f}x + {b:.1f}$", transform=ax.transAxes, fontsize=12)
+        ax.text(0.05, 0.80, fr"$R^2 = {r2:.3f}$", transform=ax.transAxes, fontsize=12)
+
+    ax.set_title(title, fontsize=15)
+    ax.set_ylabel("Dan v letu (konec)", fontsize=13)
+    ax.set_xlabel("Leto", fontsize=13)
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.legend(fontsize=9, loc='best')
+
+def plot_yearly_concentration(ax, years, total_yearly, colors, lw_1, title):
+    """
+    Prikaz letne koncentracije skozi leta z linearno fit premico in R².
+    """
+    ax.scatter(years, total_yearly, color=[colors[y] for y in years], s=80, label="Letna koncentracija")
+    #ax.plot(years, total_yearly, color="black", linewidth=lw_1, alpha=0.6)
+
+    # Linearni trend (fit)
+    fit_mask = ~np.isnan(total_yearly)
+    fit_years = np.array(years)[fit_mask]
+    fit_totals = np.array(total_yearly)[fit_mask]
+    if len(fit_years) > 1:
+        m, b = np.polyfit(fit_years, fit_totals, 1)
+        trend = m * fit_years + b
+        r2 = np.corrcoef(fit_years, fit_totals)[0, 1] ** 2
+        ax.plot(fit_years, trend, color="crimson", linestyle="--", linewidth=2, label="Trend")
+        ax.text(0.05, 0.90, fr"Trend: $y = {m:.2f}x + {b:.1f}$", transform=ax.transAxes, fontsize=12)
+        ax.text(0.05, 0.80, fr"$R^2 = {r2:.3f}$", transform=ax.transAxes, fontsize=12)
+
+    ax.set_title(title, fontsize=15)
+    ax.set_ylabel("Letna vsota [enote]", fontsize=13)
+    ax.set_xlabel("Leto", fontsize=13)
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.legend(fontsize=9, loc='best')
+
 def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_name:str = "default", reference_year: int = 2004):
-    # Združevanje po 'Type' namesto po 'Skupina'
+    cmap = plt.get_cmap("viridis")  # ali "plasma", "cividis", "coolwarm", "RdYlBu"
     dg = df.groupby("Type")
-    cmap = plt.get_cmap("RdBu")
     print("    - Generating activation reference...")
     act_reference = activation_reference(df, location=location, reference_year=reference_year)
     print(act_reference)
-    # Ustvarjanje barvnega slovarja za vsa leta v naboru podatkov
     all_years = sorted(df["Year"].unique())
-    colors = {year: cmap(i / len(all_years)) for i, year in enumerate(all_years)}
+    colors = {year: cmap(i / (len(all_years) - 1)) for i, year in enumerate(all_years)}
 
-    results = {}
-    
-    lw_1 = 0.5
-    lw_2 = 1
+    plt.rcParams.update({
+        'axes.facecolor': 'white',
+        'figure.facecolor': 'white',
+        'axes.edgecolor': 'grey',
+        'grid.color': 'lightgrey',
+        'font.size': 12,
+        'axes.labelsize': 14,
+        'axes.titlesize': 16,
+        'legend.fontsize': 11,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+    })
+
+    lw_1 = 1.2
+    lw_2 = 2.5
     w = ma
-    print("\tStep 1: Performing type-specific activation analysis...")
-    for i,ii in dg:
+
+    results = {}  # <--- ADD THIS, so results exist before loop!
+
+    for i, ii in dg:
         base_path = generate_base_path(location)
         output_path = path_for_export(lv1=base_path, lv2=step_name)
+
         list_y = []
-        list_y_smooth = []
-        list_y_cumsum = []
-        list_y_cumsum_norm = []
-        K50 = {}
-        max_CP = {}
-        
-        fig, ax = plt.subplots(ncols=3, nrows=2, figsize=(10, 6), gridspec_kw={'width_ratios': [1, 1, 1]},dpi=150, facecolor='lightblue')
-        plt.subplots_adjust(wspace=0.5)
-        x_standard = [k for k in range(365)]
-        
-        for j,jj in ii.groupby("Year"):
+        years = []
+        for j, jj in ii.groupby("Year"):
             jj = jj.sort_values("Date")
-            x = [k for k in range(len(jj["Date"]))][0:365]
-            y = jj["Value"].values[0:365]
+            y = jj["Value"].values[:365]
             list_y.append(y)
-            
-            ax[0,0].plot(x_standard,y,label=f"{j}",alpha = 0.5, color=colors[j],linewidth = lw_1)
-            
-            y_smooth = moving_average(y, w)
-            xs = [k+w//2 for k in range(len(y_smooth))]
-            list_y_smooth.append(y_smooth)
-            ax[0,1].plot(xs,y_smooth,label=f"{j}",alpha = 0.5, color=colors[j],linewidth = lw_1)
-            
-            xx = [k for k in range(len(y))]
-            yy = np.array([np.nansum(y[0:v]) for v in range(len(y))])
-            list_y_cumsum.append(yy)
-            ax[0,2].plot(xx,yy,label=f"{j}",alpha = 0.5, color=colors[j],linewidth = lw_1)
+            years.append(j)
 
-            norm = act_reference[i]["Total Sum"] if i in act_reference else 1.0
-            if norm == 0:
-                norm = 1.0
-            yy_norm = yy/norm
-            selected_list = np.where(yy_norm>0.5)
-            if len(selected_list[0]) > 0:
-                K50[j] = np.where(yy_norm>0.5)[0][0]
-            else:
-                K50[j] = np.nan
-            max_CP[j] = np.nanmax(yy)
-            list_y_cumsum_norm.append(yy_norm)
-            ax[1,0].plot(np.array(xx),yy_norm,label=f"{j}",alpha = 0.5, color=colors[j],linewidth = lw_1)
-        
-        print("\tStep 2: Plotting and calculating trends...")
-        mean_y = np.nanmean(list_y,axis=0)
-        ax[0,0].plot(x,mean_y,label="Povprečje",c = "black",linewidth = lw_2)
-        mean_y_smooth = np.nanmean(list_y_smooth,axis=0)
-        ax[0,1].plot(mean_y_smooth,label="Povprečje",c = "black",linewidth = lw_2)
-        
-        mean_y_cumsum = np.nanmean(list_y_cumsum,axis=0)
-        ax[0,2].plot(mean_y_cumsum,label="Povprečje",c = "black",linewidth = lw_2)
-        
-        mean_y_cumsum = np.nanmean(list_y_cumsum_norm,axis=0)
-        mean_y_cumsum = [np.nanmean(np.array(list_y_cumsum_norm)[:,k]) for k in range(365)]
-        
-        ax[1,0].plot(mean_y_cumsum,label="Povprečje",c = "black",linewidth = lw_2)
-        
-        handles, labels = ax[0,0].get_legend_handles_labels()
-        unique_labels = list(dict.fromkeys(labels))  # Limit the number of legend entries
-        fig.legend(handles[:len(unique_labels)], unique_labels, loc='upper center', bbox_to_anchor=(0.5, 1.05), ncol=12, fontsize=4)
-        
-        # Filter NaN values before plotting or calculating regression
-        x_filtered = [k for k in K50 if not np.isnan(K50[k])]
-        y_50_filtered = [K50[k] for k in K50 if not np.isnan(K50[k])]
-        
-        results[i]={}
-        print("\tStep 3: Calculating K50 and CP trends...")
-        if len(x_filtered) > 1:
-            m, b = np.polyfit(x_filtered, y_50_filtered, 1)
-            r2 = np.corrcoef(x_filtered, y_50_filtered)[0, 1]**2
-            results[i]["K50"]={"Trend":float(m),
-                            "Intercept":float(b),
-                            "R2":float(r2),
-                            "min(K50)":int(np.nanmin(y_50_filtered)),
-                            "avg(K50)":int(np.nanmean(y_50_filtered)),
-                            "max(K50)":int(np.nanmax(y_50_filtered))}
-            ax[1,1].text(0.1, 1.15, fr"$y = {m:.2f}x + {b:.2f}$", transform=ax[1,1].transAxes, fontsize = 8)
-            ax[1,1].text(0.1, 1.05, fr"$(R^2 = {r2:.3f})$", transform=ax[1,1].transAxes, fontsize = 8)
-            ax[1,1].plot(x_filtered, m*np.array(x_filtered) + b, c = "red",linewidth = 2)
-        else:
-            results[i]["K50"]={"Trend":np.nan, "Intercept":np.nan, "R2":np.nan, "min(K50)":np.nan, "avg(K50)":np.nan, "max(K50)":np.nan}
-        ax[1,1].scatter([leto for leto in K50 if not np.isnan(K50[leto])], [K50[leto] for leto in K50 if not np.isnan(K50[leto])], color=[colors[leto] for leto in K50 if not np.isnan(K50[leto])])
-        
-        # Filter NaN values for CP before plotting or calculating regression
-        y_filtered = [max_CP[k] for k in K50 if not np.isnan(K50[k]) and not np.isnan(max_CP[k])]
-        x_filtered_cp = [k for k in K50 if not np.isnan(K50[k]) and not np.isnan(max_CP[k])]
-        
-        print("\tStep 4: Calculating CP trends...")
-        if len(x_filtered_cp) > 1:
-            m, b = np.polyfit(x_filtered_cp, y_filtered, 1)
-            r2 = np.corrcoef(x_filtered_cp, y_filtered)[0, 1]**2
-            results[i]["CP"]={"Trend":float(m),
-                            "Intercept":float(b),
-                            "R2":float(r2),
-                            "min(CP)":float(min(y_filtered)),
-                            "avg(CP)":float(np.mean(y_filtered)),
-                            "max(CP)":float(max(y_filtered))}
-            ax[1,2].text(0.1, 1.15, fr"$y = {m:.2f}x + {b:.2f}$", transform=ax[1,2].transAxes, fontsize = 8)
-            ax[1,2].text(0.1, 1.05, fr"$(R^2 = {r2:.3f})$", transform=ax[1,2].transAxes, fontsize = 8)
-            ax[1,2].plot(x_filtered_cp, m*np.array(x_filtered_cp) + b, c = "red",linewidth = 2)
-        else:
-            results[i]["CP"]={"Trend":np.nan, "Intercept":np.nan, "R2":np.nan, "min(CP)":np.nan, "avg(CP)":np.nan, "max(CP)":np.nan}
-        ax[1,2].scatter([leto for leto in K50 if not np.isnan(K50[leto])], [max_CP[leto] for leto in K50 if not np.isnan(K50[leto])], color=[colors[leto] for leto in K50 if not np.isnan(K50[leto])])
-        
-        #for ix in range(0,2):
-        #    for iy in range(0,3):
-        #        ax[ix,iy].set_xlim(2002,2023) # Set a fixed xlim for year plots
-        
-        
-        print("\tStep 5: Finalizing and saving plots...")
-        ax[0,0].set_title(i,fontsize = 8)
-        ax[0,0].set_ylabel("Količina cvetnega prahu [?]",fontsize = 6)
-        ax[0,0].set_xlabel("Dan v letu",fontsize = 6)
-        
-        ax[0,1].set_title(f"{w}-dneno povprečje cvetnega prahu",fontsize = 8)
-        ax[0,1].set_ylabel("Količina cvetnega prahu [?]",fontsize = 6)
-        ax[0,1].set_xlabel("Dan v letu",fontsize = 6)
-        
-        ax[0,2].set_title("Kumulativna vsota cvetnega prahu",fontsize = 8)
-        ax[0,2].set_ylabel("Količina cvetnega prahu [?]",fontsize = 6)
-        ax[0,2].set_xlabel("Dan v letu",fontsize = 6)
-        
-        ax[1,0].set_title("Normirana kumulativna vsota cvetnega prahu",fontsize = 8)
-        ax[1,0].set_ylabel("Delež od max",fontsize = 6)
-        ax[1,0].set_xlabel("Dan v letu",fontsize = 6)
-        ax[1,0].hlines(0.5,0,365,linestyles="--",color="green")
-        
-        # Ensure plot limits are valid for the given data
-        valid_y_50 = [y for y in K50 if not np.isnan(y)]
-        if len(valid_y_50) > 0:
-            ax[1,0].text(np.nanmean(valid_y_50)-50,0.51,"50%",color="green")
-            # ax[1,0].set_xlim(np.nanmean(valid_y_50)-50,np.nanmean(valid_y_50)+50)
-        else:
-            ax[1,0].text(100,0.51,"50%",color="green")
-        #ax[1,0].set_ylim(-0.01,1.01)
+        x_standard = list(range(365))
+        mean_y = np.nanmean(list_y, axis=0)
+        total_yearly = [np.nansum(y) for y in list_y]
+        reference_total = act_reference[i]["Total Sum"] if i in act_reference else 1.0
 
-        ax[1,1].set_ylabel("K50",fontsize = 6)
-        ax[1,1].set_xlabel("Leto",fontsize = 6)
-        
-        ax[1,2].set_ylabel("Skupna koncentracija",fontsize = 6)
-        ax[1,2].set_xlabel("Leto",fontsize = 6)
-        
-        plt.tight_layout()
-        file_path = os.path.join(output_path,f"02_{i}_{location}.png")
-        plt.savefig(file_path)
+        # --- Calculate starts, ends, k50 for each year ---
+        cum_sums = [np.nancumsum(y) for y in list_y]
+        norm_cumsums = [cum_sum / reference_total if reference_total > 0 else np.zeros_like(cum_sum) for cum_sum in cum_sums]
+        starts = []
+        ends = []
+        k50s = []
+        for norm_cum in norm_cumsums:
+            start_idx = np.where(norm_cum > 0.05)[0]
+            starts.append(start_idx[0] if len(start_idx) > 0 else np.nan)
+            end_idx = np.where(norm_cum > 0.975)[0]
+            ends.append(end_idx[0] if len(end_idx) > 0 else np.nan)
+            k50_idx = np.where(norm_cum > 0.5)[0]
+            k50s.append(k50_idx[0] if len(k50_idx) > 0 else np.nan)
+
+        # --- STATISTICS BLOCK: Compute linear trends for each ---
+        results[i] = {}
+        # K10 (Start trend)
+        fit_mask = ~np.isnan(starts)
+        fit_years = np.array(years)[fit_mask]
+        fit_starts = np.array(starts)[fit_mask]
+        if len(fit_years) > 1:
+            m, b = np.polyfit(fit_years, fit_starts, 1)
+            r2 = np.corrcoef(fit_years, fit_starts)[0, 1] ** 2
+            results[i]["K10"] = {
+                "Trend": float(m),
+                "Intercept": float(b),
+                "R2": float(r2),
+                "min(K10)": int(np.nanmin(fit_starts)),
+                "avg(K10)": float(np.nanmean(fit_starts)),
+                "max(K10)": int(np.nanmax(fit_starts))
+            }
+        else:
+            results[i]["K10"] = {"Trend": np.nan, "Intercept": np.nan, "R2": np.nan, "min(K10)": np.nan, "avg(K10)": np.nan, "max(K10)": np.nan}
+
+        # K90 (End trend)
+        fit_mask = ~np.isnan(ends)
+        fit_years = np.array(years)[fit_mask]
+        fit_ends = np.array(ends)[fit_mask]
+        if len(fit_years) > 1:
+            m, b = np.polyfit(fit_years, fit_ends, 1)
+            r2 = np.corrcoef(fit_years, fit_ends)[0, 1] ** 2
+            results[i]["K90"] = {
+                "Trend": float(m),
+                "Intercept": float(b),
+                "R2": float(r2),
+                "min(K90)": int(np.nanmin(fit_ends)),
+                "avg(K90)": float(np.nanmean(fit_ends)),
+                "max(K90)": int(np.nanmax(fit_ends))
+            }
+        else:
+            results[i]["K90"] = {"Trend": np.nan, "Intercept": np.nan, "R2": np.nan, "min(K90)": np.nan, "avg(K90)": np.nan, "max(K90)": np.nan}
+
+        # K50 (mid-season trend)
+        fit_mask = ~np.isnan(k50s)
+        fit_years = np.array(years)[fit_mask]
+        fit_k50s = np.array(k50s)[fit_mask]
+        if len(fit_years) > 1:
+            m, b = np.polyfit(fit_years, fit_k50s, 1)
+            r2 = np.corrcoef(fit_years, fit_k50s)[0, 1] ** 2
+            results[i]["K50"] = {
+                "Trend": float(m),
+                "Intercept": float(b),
+                "R2": float(r2),
+                "min(K50)": int(np.nanmin(fit_k50s)),
+                "avg(K50)": float(np.nanmean(fit_k50s)),
+                "max(K50)": int(np.nanmax(fit_k50s))
+            }
+        else:
+            results[i]["K50"] = {"Trend": np.nan, "Intercept": np.nan, "R2": np.nan, "min(K50)": np.nan, "avg(K50)": np.nan, "max(K50)": np.nan}
+
+        # CP (yearly concentration trend)
+        fit_mask = ~np.isnan(total_yearly)
+        fit_years = np.array(years)[fit_mask]
+        fit_totals = np.array(total_yearly)[fit_mask]
+        if len(fit_years) > 1:
+            m, b = np.polyfit(fit_years, fit_totals, 1)
+            r2 = np.corrcoef(fit_years, fit_totals)[0, 1] ** 2
+            results[i]["CP"] = {
+                "Trend": float(m),
+                "Intercept": float(b),
+                "R2": float(r2),
+                "min(CP)": float(np.nanmin(fit_totals)),
+                "avg(CP)": float(np.nanmean(fit_totals)),
+                "max(CP)": float(np.nanmax(fit_totals))
+            }
+        else:
+            results[i]["CP"] = {"Trend": np.nan, "Intercept": np.nan, "R2": np.nan, "min(CP)": np.nan, "avg(CP)": np.nan, "max(CP)": np.nan}
+
+        # ---- PLOTTING (as before) ----
+        fig, ax = plt.subplots(ncols=3, nrows=2, figsize=(16, 10),
+                              gridspec_kw={'width_ratios': [1, 1, 1]},
+                              constrained_layout=True, dpi=300)
+
+        # Zgornja vrstica
+        plot_daily_values(ax[0, 0], x_standard, list_y, mean_y, colors, years, lw_1, lw_2, f"{i}: Dnevne vrednosti")
+        plot_aggregated_yearly(ax[0, 1], years, list_y, colors, lw_1, lw_2, "Agregirana vsota skozi leto po letih")
+        _starts, _ends, _k50s = plot_normalized_yearly(
+            ax[0, 2], years, list_y, colors, reference_total, lw_1, lw_2,
+            "Normirana agregirana vsota skozi leto", reference_year
+        )
+        # Spodnja vrstica
+        plot_season_start(ax[1, 0], years, starts, colors, lw_1, "Začetek sezone (K10)")
+        plot_season_end(ax[1, 1], years, ends, colors, lw_1, "Konec sezone (K90)")
+        plot_yearly_concentration(ax[1, 2], years, total_yearly, colors, lw_1, "Letna koncentracija skozi leta")
+
+        plt.tight_layout(rect=[0, 0.04, 1, 0.98])
+        file_path = os.path.join(output_path, f"02_{i}_{location}.png")
+        plt.savefig(file_path, dpi=300, bbox_inches='tight')
         plt.close()
         
     res_2 = {"Type":[],
@@ -286,32 +410,26 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_na
             x = [ix for ix in range(len(y))]
             jj_cum_sum = [np.nansum(y[0:v]) for v in range(len(y[0:365]))]
             norm = np.nanmax(jj_cum_sum)
-            total_sum = np.nansum(y) # Calculate total annual sum for the current year
-            threshold_5_percent = 0.05 * total_sum # Calculate the 5% threshold
+            total_sum = np.nansum(y)
+            threshold_5_percent = 0.05 * total_sum
 
-            # Ensure cumulative sum is normalized properly, handle cases where no values > 0.1, 0.5, or 0.9
             if norm == 0:
-                norm = 1.0  # Prevent division by zero
+                norm = 1.0
 
             jj_cum_sum_norm = np.array(jj_cum_sum) / norm
 
-            # Find K10, K50, K90 with proper handling for empty results
-            # The start of the season is now when cumulative sum exceeds the 5% threshold
             Start_index = np.where(np.array(jj_cum_sum) > threshold_5_percent)[0]
             End_index = np.where(jj_cum_sum_norm > 0.975)[0]
             K50_index = np.where(jj_cum_sum_norm > 0.5)[0]
 
-            # Assign default values if no indices are found
             K10 = int(Start_index[0]) if len(Start_index) > 0 else np.nan
             K50 = int(K50_index[0]) if len(K50_index) > 0 else np.nan
             K90 = int(End_index[0]) if len(End_index) > 0 else np.nan
 
-            # Add these values to your results
             res_2["Start"].append(K10)
             res_2["K50"].append(K50)
             res_2["End"].append(K90)
 
-            # Only calculate interval and rate if all K-values are valid (not NaN)
             if not (np.isnan(K10) or np.isnan(K50) or np.isnan(K90)):
                 interval = K90 - K10
                 if interval > 0:
@@ -322,14 +440,11 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_na
                 res_2["Sart-End interval"].append(interval)
                 res_2["rate"].append(rate)
             else:
-                # If any K-values are NaN, append NaN for interval and rate
                 res_2["Sart-End interval"].append(np.nan)
                 res_2["rate"].append(np.nan)
 
-            # Append max_CP for each year
             res_2["max_CP"].append(norm)
-
-            res_2["Type"].append(i) # Zdaj shranjujemo ime skupine namesto imena vrste
+            res_2["Type"].append(i)
             res_2["Year"].append(j)
     
     path = os.path.join("results",f"{location}_results.json")
@@ -341,6 +456,85 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_na
         json.dump(res_2, f, indent=4)
         
     return [results,res_2, colors]
+
+def auc_and_ci_start_stop(results:dict, colors:dict, location:str):
+    df_res_2 = pd.DataFrame(results)
+    # display(df_res_2)  # če si v Jupyterju, sicer lahko odstraniš
+
+    ##----------------------------------- Season start ------------------------------------------##
+    fig, ax = plt.subplots(ncols=3,
+                        nrows=1,
+                        figsize=(10, 4),
+                        gridspec_kw={'width_ratios': [1, 1, 1]},
+                        dpi=150,
+                        facecolor='white')
+    fig.subplots_adjust(hspace=0.5, wspace=0.5)
+    var = "Start"
+    mean_values = df_res_2.groupby('Type')[var].mean().sort_values()
+    iterate = mean_values.index.values
+    sns.boxplot(data = df_res_2,x = "Type",y = var, order=mean_values.index,fliersize=0,ax = ax[0])
+    for i,tip in enumerate(iterate):
+        dfs = df_res_2[df_res_2["Type"]==tip].sort_values("Year")[var].values
+        x = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["Year"].values   
+        color_palette = [colors[leto] for leto in x]
+        ax[0].scatter([i for leto in x],dfs,color=color_palette,s=15)
+    ax[0].set_xlabel("Vrsta")
+    ax[0].set_ylabel("Pričetek sezone K10")
+    ax[0].set_xticklabels(ax[0].get_xticklabels(), rotation=45, horizontalalignment='right',fontsize=8)
+
+    ##----------------------------------- Season End ------------------------------------------##
+    var = "End"
+    sns.boxplot(data = df_res_2,x = "Type",y = var, order=mean_values.index,fliersize=0,ax = ax[1])
+    for i,tip in enumerate(iterate):
+        dfs = df_res_2[df_res_2["Type"]==tip].sort_values("Year")[var].values
+        x = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["Year"].values   
+        color_palette = [colors[leto] for leto in x]
+        ax[1].scatter([i for leto in x],dfs,color=color_palette,s=15)
+    ax[1].set_xlabel("Vrsta")
+    ax[1].set_ylabel("Konec sezone K90")
+    ax[1].set_xticklabels(ax[1].get_xticklabels(), rotation=45, horizontalalignment='right',fontsize=8)
+
+    ##----------------------------------- Order of change------------------------------------------##
+    var = "Sart-End interval"  # popravljeno ime ključa!
+    mean_K10 = df_res_2.groupby('Type')[var].mean().sort_values().to_dict()
+    for i,tip in enumerate(iterate):
+        dfs = df_res_2[df_res_2["Type"]==tip].sort_values("Year")[var].values
+        dfs = dfs - mean_K10[tip]
+        x = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["Year"].values
+        color_palette = [colors[leto] for leto in x]
+        ax[2].scatter([i for leto in x],dfs,color=color_palette,s=15,alpha = 0.5)
+    ax[2].set_xlabel("Vrsta")
+    ax[2].set_ylabel("Start-End interval (odstopanje od povprečja)")
+    ax[2].set_xticklabels(ax[2].get_xticklabels(), rotation=45, horizontalalignment='right',fontsize=8)
+    #ax[2].set_ylim(-50,50)
+
+    # Shrani graf
+
+    base_path = generate_base_path(location)
+    file_path =  path_for_export(lv1=base_path, name=f"AUC_CI_90_{location}a.png")
+    plt.tight_layout()
+    plt.savefig(file_path, dpi=150)
+    plt.show()
+    plt.close()
+
+    ##----------------------------------- Rate ------------------------------------------------##
+    plt.figure(figsize=(8,4),dpi=150, facecolor='white')
+    plt.title("Rate of change")
+    mean_values = df_res_2.groupby('Type')['rate'].mean().sort_values()
+    iterate = mean_values.index.values
+    sns.boxplot(data = df_res_2,x = "Type",y = "rate", order=mean_values.index,fliersize=0)
+    for i,tip in enumerate(iterate):
+        dfs = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["rate"].values
+        x = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["Year"].values   
+        color_palette = [colors[leto] for leto in x]
+        plt.scatter([i for leto in x],dfs,color=color_palette,s=15)
+    plt.xticks(rotation=45, ha ="right", fontsize=8)
+    base_path = generate_base_path(location)
+    file_path =  path_for_export(lv1=base_path, name=f"AUC_CI_90_{location}b.png")
+    plt.tight_layout()
+    plt.savefig(file_path, dpi=150)
+    plt.show()
+    plt.close()
 
 def save_correlation_results_to_json(correlation_dict, step_name):
     """
