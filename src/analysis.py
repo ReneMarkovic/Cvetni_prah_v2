@@ -89,9 +89,9 @@ def activation_reference(df: pd.DataFrame, location:str, reference_year: int = 2
     pollen_types = df["Type"].unique()
     pollen_type_season_reference = {}
     for pollen_type in pollen_types:
-        print("    - Determining season thresholds for pollen type:", pollen_type)
+        #print("    - Determining season thresholds for pollen type:", pollen_type)
         result = determine_season_by_reference_year(df, location, pollen_type, reference_year)
-        print(result)
+        #print(result)
         if result is not None:
             pollen_type_season_reference[pollen_type] = result
     file_path = generate_base_path(location)
@@ -242,7 +242,7 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_na
     dg = df.groupby("Type")
     print("    - Generating activation reference...")
     act_reference = activation_reference(df, location=location, reference_year=reference_year)
-    print(act_reference)
+    #print(act_reference)
     all_years = sorted(df["Year"].unique())
     colors = {year: cmap(i / (len(all_years) - 1)) for i, year in enumerate(all_years)}
 
@@ -264,7 +264,7 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_na
     w = ma
 
     results = {}  # <--- ADD THIS, so results exist before loop!
-
+    print("    - Generating type-specific activation plots...")
     for i, ii in dg:
         base_path = generate_base_path(location)
         output_path = path_for_export(lv1=base_path, lv2=step_name)
@@ -333,7 +333,8 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_na
             }
         else:
             results[i]["K90"] = {"Trend": np.nan, "Intercept": np.nan, "R2": np.nan, "min(K90)": np.nan, "avg(K90)": np.nan, "max(K90)": np.nan}
-
+        
+        print(f"      - Trends for {i}: K10 Trend={results[i]['K10']['Trend']}, K90 Trend={results[i]['K90']['Trend']}")
         # K50 (mid-season trend)
         fit_mask = ~np.isnan(k50s)
         fit_years = np.array(years)[fit_mask]
@@ -351,7 +352,8 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_na
             }
         else:
             results[i]["K50"] = {"Trend": np.nan, "Intercept": np.nan, "R2": np.nan, "min(K50)": np.nan, "avg(K50)": np.nan, "max(K50)": np.nan}
-
+        
+        print(f"      - Trends for {i}: K50 Trend={results[i]['K50']['Trend']}")
         # CP (yearly concentration trend)
         fit_mask = ~np.isnan(total_yearly)
         fit_years = np.array(years)[fit_mask]
@@ -374,7 +376,8 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_na
         fig, ax = plt.subplots(ncols=3, nrows=2, figsize=(16, 10),
                               gridspec_kw={'width_ratios': [1, 1, 1]},
                               constrained_layout=True, dpi=300)
-
+        
+        print(f"      - Plotting figures for {i}...")
         # Zgornja vrstica
         plot_daily_values(ax[0, 0], x_standard, list_y, mean_y, colors, years, lw_1, lw_2, f"{i}: Dnevne vrednosti")
         plot_aggregated_yearly(ax[0, 1], years, list_y, colors, lw_1, lw_2, "Agregirana vsota skozi leto po letih")
@@ -387,11 +390,12 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_na
         plot_season_end(ax[1, 1], years, ends, colors, lw_1, "Konec sezone (K90)")
         plot_yearly_concentration(ax[1, 2], years, total_yearly, colors, lw_1, "Letna koncentracija skozi leta")
 
-        plt.tight_layout(rect=[0, 0.04, 1, 0.98])
+        #plt.tight_layout(rect=[0, 0.04, 1, 0.98])
         file_path = os.path.join(output_path, f"02_{i}_{location}.png")
         plt.savefig(file_path, dpi=300, bbox_inches='tight')
         plt.close()
-        
+    
+    print("    - Saving results res_2...") 
     res_2 = {"Type":[],
             "Year":[],
             "Start":[],
@@ -402,6 +406,7 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_na
             "max_CP":[]}
 
     # Združevanje po 'Type' namesto po 'Skupina'
+    print("    - Calculating res_2 statistics...")
     dg = df.groupby("Type")
     for i,ii in dg:
         for j,jj in ii.groupby("Year"):
@@ -447,6 +452,7 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_na
             res_2["Type"].append(i)
             res_2["Year"].append(j)
     
+    print("    - Saving results to JSON...")
     path = os.path.join("results",f"{location}_results.json")
     with open(path, "w") as f:
         json.dump(results, f, indent=4)
@@ -459,79 +465,118 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_na
 
 def auc_and_ci_start_stop(results:dict, colors:dict, location:str):
     df_res_2 = pd.DataFrame(results)
-    # display(df_res_2)  # če si v Jupyterju, sicer lahko odstraniš
+    print("    - Generating AUC and CI plots...")
 
     ##----------------------------------- Season start ------------------------------------------##
     fig, ax = plt.subplots(ncols=3,
                         nrows=1,
-                        figsize=(10, 4),
+                        figsize=(14, 6),
                         gridspec_kw={'width_ratios': [1, 1, 1]},
                         dpi=150,
                         facecolor='white')
-    fig.subplots_adjust(hspace=0.5, wspace=0.5)
+    fig.subplots_adjust(hspace=0.3, wspace=0.3)
+    for a in ax:
+        a.set_facecolor('white')  # AXES background white
+
     var = "Start"
     mean_values = df_res_2.groupby('Type')[var].mean().sort_values()
     iterate = mean_values.index.values
-    sns.boxplot(data = df_res_2,x = "Type",y = var, order=mean_values.index,fliersize=0,ax = ax[0])
-    for i,tip in enumerate(iterate):
-        dfs = df_res_2[df_res_2["Type"]==tip].sort_values("Year")[var].values
-        x = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["Year"].values   
+
+    # Boxplot: no color fill
+    sns.boxplot(
+        data=df_res_2, x="Type", y=var, order=mean_values.index, fliersize=0, ax=ax[0],
+        boxprops=dict(facecolor='white', color='black'),
+        medianprops=dict(color='black'),
+        whiskerprops=dict(color='black'),
+        capprops=dict(color='black')
+    )
+    # Scatter: use colormap for years
+    for i, tip in enumerate(iterate):
+        df_filtered = df_res_2[df_res_2["Type"] == tip].sort_values("Year")
+        dfs = df_filtered[var].values
+        x = df_filtered["Year"].values
         color_palette = [colors[leto] for leto in x]
-        ax[0].scatter([i for leto in x],dfs,color=color_palette,s=15)
-    ax[0].set_xlabel("Vrsta")
-    ax[0].set_ylabel("Pričetek sezone K10")
-    ax[0].set_xticklabels(ax[0].get_xticklabels(), rotation=45, horizontalalignment='right',fontsize=8)
+        ax[0].scatter([i]*len(x), dfs, color=color_palette, s=35, alpha=0.7, edgecolor='k', linewidth=0.5)
+    ax[0].set_xlabel("Vrsta", fontsize=12)
+    ax[0].set_ylabel("Pričetek sezone K10", fontsize=12)
+    ax[0].set_xticklabels(ax[0].get_xticklabels(), rotation=45, ha='right', fontsize=10)
+    ax[0].set_title("Začetek sezone (K10)", fontsize=14)
+    ax[0].grid(True, linestyle='--', alpha=0.3)
 
     ##----------------------------------- Season End ------------------------------------------##
     var = "End"
-    sns.boxplot(data = df_res_2,x = "Type",y = var, order=mean_values.index,fliersize=0,ax = ax[1])
-    for i,tip in enumerate(iterate):
-        dfs = df_res_2[df_res_2["Type"]==tip].sort_values("Year")[var].values
-        x = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["Year"].values   
+    sns.boxplot(
+        data=df_res_2, x="Type", y=var, order=mean_values.index, fliersize=0, ax=ax[1],
+        boxprops=dict(facecolor='white', color='black'),
+        medianprops=dict(color='black'),
+        whiskerprops=dict(color='black'),
+        capprops=dict(color='black')
+    )
+    for i, tip in enumerate(iterate):
+        df_filtered = df_res_2[df_res_2["Type"] == tip].sort_values("Year")
+        dfs = df_filtered[var].values
+        x = df_filtered["Year"].values
         color_palette = [colors[leto] for leto in x]
-        ax[1].scatter([i for leto in x],dfs,color=color_palette,s=15)
-    ax[1].set_xlabel("Vrsta")
-    ax[1].set_ylabel("Konec sezone K90")
-    ax[1].set_xticklabels(ax[1].get_xticklabels(), rotation=45, horizontalalignment='right',fontsize=8)
+        ax[1].scatter([i]*len(x), dfs, color=color_palette, s=35, alpha=0.7, edgecolor='k', linewidth=0.5)
+    ax[1].set_xlabel("Vrsta", fontsize=12)
+    ax[1].set_ylabel("Konec sezone K90", fontsize=12)
+    ax[1].set_xticklabels(ax[1].get_xticklabels(), rotation=45, ha='right', fontsize=10)
+    ax[1].set_title("Konec sezone (K90)", fontsize=14)
+    ax[1].grid(True, linestyle='--', alpha=0.3)
 
     ##----------------------------------- Order of change------------------------------------------##
-    var = "Sart-End interval"  # popravljeno ime ključa!
+    var = "Sart-End interval"
     mean_K10 = df_res_2.groupby('Type')[var].mean().sort_values().to_dict()
-    for i,tip in enumerate(iterate):
-        dfs = df_res_2[df_res_2["Type"]==tip].sort_values("Year")[var].values
-        dfs = dfs - mean_K10[tip]
-        x = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["Year"].values
+    sns.boxplot(
+        data=df_res_2, x="Type", y=var, order=mean_values.index, fliersize=0, ax=ax[2],
+        boxprops=dict(facecolor='white', color='black'),
+        medianprops=dict(color='black'),
+        whiskerprops=dict(color='black'),
+        capprops=dict(color='black')
+    )
+    for i, tip in enumerate(iterate):
+        df_filtered = df_res_2[df_res_2["Type"] == tip].sort_values("Year")
+        dfs = df_filtered[var].values - mean_K10[tip]
+        x = df_filtered["Year"].values
         color_palette = [colors[leto] for leto in x]
-        ax[2].scatter([i for leto in x],dfs,color=color_palette,s=15,alpha = 0.5)
-    ax[2].set_xlabel("Vrsta")
-    ax[2].set_ylabel("Start-End interval (odstopanje od povprečja)")
-    ax[2].set_xticklabels(ax[2].get_xticklabels(), rotation=45, horizontalalignment='right',fontsize=8)
-    #ax[2].set_ylim(-50,50)
-
-    # Shrani graf
+        ax[2].scatter([i]*len(x), dfs, color=color_palette, s=35, alpha=0.5, edgecolor='k', linewidth=0.5)
+    ax[2].set_xlabel("Vrsta", fontsize=12)
+    ax[2].set_ylabel("Start-End interval (odstopanje od povprečja)", fontsize=12)
+    ax[2].set_xticklabels(ax[2].get_xticklabels(), rotation=45, ha='right', fontsize=10)
+    ax[2].set_title("Trajanje sezone (odstopanje)", fontsize=14)
+    ax[2].grid(True, linestyle='--', alpha=0.3)
 
     base_path = generate_base_path(location)
-    file_path =  path_for_export(lv1=base_path, name=f"AUC_CI_90_{location}a.png")
+    file_path = path_for_export(lv1=base_path, name=f"AUC_CI_90_{location}a.png")
     plt.tight_layout()
     plt.savefig(file_path, dpi=150)
     plt.show()
     plt.close()
 
     ##----------------------------------- Rate ------------------------------------------------##
-    plt.figure(figsize=(8,4),dpi=150, facecolor='white')
-    plt.title("Rate of change")
+    plt.figure(figsize=(10, 5), dpi=150, facecolor='white')
+    plt.title("Hitrost spremembe", fontsize=15)
     mean_values = df_res_2.groupby('Type')['rate'].mean().sort_values()
     iterate = mean_values.index.values
-    sns.boxplot(data = df_res_2,x = "Type",y = "rate", order=mean_values.index,fliersize=0)
-    for i,tip in enumerate(iterate):
-        dfs = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["rate"].values
-        x = df_res_2[df_res_2["Type"]==tip].sort_values("Year")["Year"].values   
+    sns.boxplot(
+        data=df_res_2, x="Type", y="rate", order=mean_values.index, fliersize=0,
+        boxprops=dict(facecolor='white', color='black'),
+        medianprops=dict(color='black'),
+        whiskerprops=dict(color='black'),
+        capprops=dict(color='black')
+    )
+    for i, tip in enumerate(iterate):
+        df_filtered = df_res_2[df_res_2["Type"] == tip].sort_values("Year")
+        dfs = df_filtered["rate"].values
+        x = df_filtered["Year"].values
         color_palette = [colors[leto] for leto in x]
-        plt.scatter([i for leto in x],dfs,color=color_palette,s=15)
-    plt.xticks(rotation=45, ha ="right", fontsize=8)
-    base_path = generate_base_path(location)
-    file_path =  path_for_export(lv1=base_path, name=f"AUC_CI_90_{location}b.png")
+        plt.scatter([i]*len(x), dfs, color=color_palette, s=35, alpha=0.7, edgecolor='k', linewidth=0.5)
+    plt.xlabel("Vrsta", fontsize=12)
+    plt.ylabel("Hitrost spremembe", fontsize=12)
+    plt.xticks(rotation=45, ha="right", fontsize=10)
+    plt.grid(True, linestyle='--', alpha=0.3)
     plt.tight_layout()
+    file_path = path_for_export(lv1=base_path, name=f"AUC_CI_90_{location}b.png")
     plt.savefig(file_path, dpi=150)
     plt.show()
     plt.close()

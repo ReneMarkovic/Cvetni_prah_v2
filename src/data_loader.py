@@ -31,7 +31,7 @@ def impute_missing_with_prophet(dates, y):
     mask = ~np.isnan(y)
     df_train = df[mask]
     # Prophet requires at least 5 points to fit
-    if len(df_train) < 5:
+    if len(df_train) < int(0.2*365):
         y[np.isnan(y)] = np.nanmean(y)
         return y
     m = Prophet(yearly_seasonality=True, daily_seasonality=False)
@@ -120,29 +120,11 @@ def load_data(path):
     df_processed["Value"] = df_processed["Value"].progress_apply(lambda x: str(x).replace(",",""))
     df_processed["Value"] = pd.to_numeric(df_processed["Value"],errors="coerce")
 
-    # --- Impute missing daily values with Prophet for each Type/Year ---
-    processed_frames = []
-    for pollen_type in tqdm(df_processed["Type"].unique(), desc="Prophet imputation"):
-        for year in df_processed["Year"].unique():
-            sub = df_processed[(df_processed["Type"] == pollen_type) & (df_processed["Year"] == year)].copy()
-            if len(sub) == 0:
-                continue
-            dates_arr = sub["Date"].values
-            y_arr = sub["Value"].values.astype(float)
-            if np.any(np.isnan(y_arr)):
-                y_arr = impute_missing_with_prophet(dates_arr, y_arr)
-                sub["Value"] = y_arr
-            processed_frames.append(sub)
-    df_final = pd.concat(processed_frames, ignore_index=True)
+    #replace NaN values with 0
+    df_processed["Value"] = df_processed["Value"].fillna(0)
 
-    # Now fill any remaining NaN with zero (should be rare)
-    df_final["Value"] = df_final["Value"].fillna(0)
-
-    # Add group info
-    tqdm.pandas(desc="Assigning Skupina")
-    df_final["Skupina"] = df_final["Type"].progress_apply(lambda x: rastline_skupine.get(x, "Unknown"))
-
-    return df_final
+    df_processed["Skupina"] = df_processed["Type"].progress_apply(lambda x: rastline_skupine[x])
+    return df_processed
 
 def process_data(location):
     """

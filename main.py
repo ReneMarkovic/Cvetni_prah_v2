@@ -62,7 +62,8 @@ def main():
                     step_name = "Step_4_Type_Specific"
                     print(f"Step 4: Performing type-specific activation analysis...")
                     results_1, results_2, colors = an.type_specific_activation(df_processed, location, step_name=step_name)
-                    an.auc_and_ci_start_stop(df_processed, results_1, location, step_name=step_name)
+                    pl.plot_auc_and_ci(results_2, colors, location, step_name)
+                    #an.auc_and_ci_start_stop(df_processed, results_1, location)
                     print("Type-specific analysis complete.")
                 
 
@@ -79,7 +80,7 @@ def main():
                 print(df_cp)
 
                 # Plot the results of the second analysis part (start, end, rate, etc.)
-                pl.plot_auc_and_ci(results_2, colors, location, step_name)
+                #pl.plot_auc_and_ci(results_2, colors, location, step_name)
                 print(f"Detailed analysis plots for {location} saved.")
             else:
                 print(f"Data processing failed for {location}. Skipping subsequent steps.")
