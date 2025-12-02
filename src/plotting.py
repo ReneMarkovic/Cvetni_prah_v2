@@ -222,7 +222,7 @@ def plot_auc_and_ci(results, colors, location, step_name):
     ax[0].set_xlabel("Vrsta", fontsize=12)
     ax[0].set_ylabel("Pričetek sezone", fontsize=12)
     ax[0].set_xticklabels(ax[0].get_xticklabels(), rotation=45, ha='right', fontsize=10)
-    ax[0].set_title("Začetek sezone (K10)", fontsize=14)
+    ax[0].set_title("Začetek sezone (TH = 2.5%)", fontsize=14)
     ax[0].grid(True, linestyle='--', alpha=0.3)
 
     print(f"Plotting AUC and CI for {location} PANEL B...")
@@ -239,12 +239,12 @@ def plot_auc_and_ci(results, colors, location, step_name):
     ax[1].set_xlabel("Vrsta", fontsize=12)
     ax[1].set_ylabel("Konec sezone", fontsize=12)
     ax[1].set_xticklabels(ax[1].get_xticklabels(), rotation=45, ha='right', fontsize=10)
-    ax[1].set_title("Konec sezone (K90)", fontsize=14)
+    ax[1].set_title("Konec sezone (TH = 97.5%)", fontsize=14)
     ax[1].grid(True, linestyle='--', alpha=0.3)
 
     print(f"Plotting AUC and CI for {location} PANEL C...")
     ##----------------------------------- Order of change------------------------------------------##
-    var = "Sart-End interval"
+    var = "Length"
     mean_K10 = df_res_2.groupby('Type')[var].mean().sort_values().to_dict()
     sns.boxplot(data=df_res_2, x="Type", y=var, order=mean_values.index, fliersize=0, ax=ax[2], color="#ffe082")
     for i, tip in enumerate(iterate):

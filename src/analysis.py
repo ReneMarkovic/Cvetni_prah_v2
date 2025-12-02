@@ -58,6 +58,30 @@ def perform_cross_regional_correlation(df_list, locations):
             
     return correlation_results
 
+
+def determine_season_by_mean(df: pd.DataFrame, location: str, pollen_type: str, start_th = 0.025, end_th = 0.975):
+    df_filtered = df[(df["Type"] == pollen_type)].copy()
+    print(f"    - Processing pollen type: {pollen_type} for location: {location}")
+    if df_filtered.empty:
+        print(f"Napaka: Podatki za vrsto '{pollen_type}' niso na voljo.")
+        return None
+    # Calculate the mean annual sum across all years
+    mean_annual_sum = df_filtered.groupby("Year")["Value"].sum().mean()
+    print(f"    - Mean annual sum for location {location}: {mean_annual_sum}")
+    if mean_annual_sum == 0:
+        print(f"Napaka: Povprečna letna vsota cvetnega prahu je 0 za vrsto '{pollen_type}'. Ne morem izračunati pragov.")
+        return None
+    # Calculate the start and end thresholds
+    threshold_start_percent = start_th * mean_annual_sum
+    threshold_end_percent = end_th * mean_annual_sum
+    
+    MAS = mean_annual_sum
+    TotalSum = df_filtered["Value"].sum()
+    Threshold_Start = start_th * MAS
+    Threshold_End = end_th * MAS
+
+    return {"Reference year": 0, "Total Sum": float(TotalSum), "Threshold Start": float(Threshold_Start), "Threshold End": float(Threshold_End)}
+
 def determine_season_by_reference_year(df: pd.DataFrame, location: str, pollen_type: str, reference_year: int, start_th = 0.025, end_th = 0.975):
 
     # Filter data for the specified location and pollen type
@@ -88,12 +112,21 @@ def determine_season_by_reference_year(df: pd.DataFrame, location: str, pollen_t
 def activation_reference(df: pd.DataFrame, location:str, reference_year: int = 2004):
     pollen_types = df["Type"].unique()
     pollen_type_season_reference = {}
-    for pollen_type in pollen_types:
-        #print("    - Determining season thresholds for pollen type:", pollen_type)
-        result = determine_season_by_reference_year(df, location, pollen_type, reference_year)
-        #print(result)
-        if result is not None:
-            pollen_type_season_reference[pollen_type] = result
+    if reference_year == 0:
+        #use the mean value of all years as reference
+        for pollen_type in pollen_types:
+            result = determine_season_by_mean(df, location, pollen_type, reference_year)
+            if result is not None:
+                pollen_type_season_reference[pollen_type] = result
+    
+    else:
+        for pollen_type in pollen_types:
+            #print("    - Determining season thresholds for pollen type:", pollen_type)
+            result = determine_season_by_reference_year(df, location, pollen_type, reference_year)
+            #print(result)
+            if result is not None:
+                pollen_type_season_reference[pollen_type] = result
+    
     file_path = generate_base_path(location)
     #save to json file
     with open(os.path.join(file_path, "season_reference.json"), 'w') as f:
@@ -115,9 +148,13 @@ def plot_aggregated_yearly(ax, years, list_y, colors, lw_1, lw_2, title):
     Za vsak vnos v list_y (vsako leto) nariši agregirano (kumulativno) vsoto skozi leto.
     Prikaži tudi povprečje kot debelejšo črto.
     """
+    agg_y = [[np.nansum(y[0:v]) for v in range(len(y))] for y in list_y]
+    mean_y = np.nanmean(agg_y, axis=0)
+    
+    norm_agg_y = [np.array(ay)/np.nanmax(ay) if np.nanmax(ay) > 0 else np.zeros_like(ay) for ay in agg_y]
     cum_sums = []
     for idx, y in enumerate(list_y):
-        cum_sum = np.nancumsum(y)
+        cum_sum = np.nancumsum(norm_agg_y[idx])
         cum_sums.append(cum_sum)
         ax.plot(range(len(cum_sum)), cum_sum, label=f"{years[idx]}", color=colors[years[idx]], linewidth=lw_1, alpha=0.7)
     # Povprečna kumulativna vsota skozi leto (črna črta)
@@ -237,7 +274,7 @@ def plot_yearly_concentration(ax, years, total_yearly, colors, lw_1, title):
     ax.grid(True, linestyle='--', alpha=0.5)
     ax.legend(fontsize=9, loc='best')
 
-def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_name:str = "default", reference_year: int = 2004):
+def year_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_name:str = "default", reference_year: int = 2004):
     cmap = plt.get_cmap("viridis")  # ali "plasma", "cividis", "coolwarm", "RdYlBu"
     dg = df.groupby("Type")
     print("    - Generating activation reference...")
@@ -463,6 +500,173 @@ def type_specific_activation(df: pd.DataFrame, location:str, ma:int = 7, step_na
         
     return [results,res_2, colors]
 
+
+def type_specific_activation(df: pd.DataFrame, location: str, ma: int = 7, step_name: str = "default"):
+    """
+    Analiza sezonske aktivacije za posamezno vrsto in leto,
+    s prikazom dinamike, kumulativne (nenormirane) in normirane vsote,
+    ter trendov začetka, konca in letne koncentracije skozi leta.
+    """
+
+    cmap = plt.get_cmap("viridis")
+    dg = df.groupby("Type")
+    print("    - Izvajanje analize aktivacije (normirane in nenormirane)...")
+
+    all_years = sorted(df["Year"].unique())
+    colors = {year: cmap(i / (len(all_years) - 1)) for i, year in enumerate(all_years)}
+
+    lw_1, lw_2 = 1.2, 2.5
+    results = {}
+    res_2 = {"Type": [], "Year": [], "Start": [], "End": [], "Length": [], "K50": [], "rate": [], "max_CP": []}
+
+    for pollen_type, df_type in dg:
+        base_path = generate_base_path(location)
+        output_path = path_for_export(lv1=base_path, lv2=step_name)
+
+        years, starts, ends, k50s, lengths, total_yearly = [], [], [], [], [], []
+        list_y, list_cum, list_cum_norm = [], [], []
+
+        for year, df_year in df_type.groupby("Year"):
+            df_year = df_year.sort_values("Date")
+            y = df_year["Value"].fillna(0).values[:365]
+            if np.nansum(y) == 0:
+                continue
+
+            # --- kumulativne ---
+            cum_sum = np.nancumsum(y)
+            total_sum = np.nanmax(cum_sum)
+            norm_cum = cum_sum / total_sum if total_sum > 0 else np.zeros_like(cum_sum)
+
+            # --- pragovi ---
+            start_idx = np.argmax(norm_cum >= 0.025) if np.any(norm_cum >= 0.025) else np.nan
+            end_idx = np.argmax(norm_cum >= 0.975) if np.any(norm_cum >= 0.975) else np.nan
+            k50_idx = np.argmax(norm_cum >= 0.5) if np.any(norm_cum >= 0.5) else np.nan
+            length = end_idx - start_idx if not np.isnan(start_idx) and not np.isnan(end_idx) else np.nan
+
+            # --- zapisi ---
+            res_2["Type"].append(pollen_type)
+            res_2["Year"].append(year)
+            res_2["Start"].append(start_idx)
+            res_2["End"].append(end_idx)
+            res_2["Length"].append(length)
+            res_2["K50"].append(k50_idx)
+            res_2["max_CP"].append(total_sum)
+
+            rate = np.nan
+            if not (np.isnan(start_idx) or np.isnan(end_idx)):
+                interval = end_idx - start_idx
+                if interval > 0:
+                    rate = float((cum_sum[int(end_idx)] - cum_sum[int(start_idx)]) / interval)
+            res_2["rate"].append(rate)
+
+            years.append(year)
+            starts.append(start_idx)
+            ends.append(end_idx)
+            k50s.append(k50_idx)
+            lengths.append(length)
+            total_yearly.append(total_sum)
+            list_y.append(y)
+            list_cum.append(cum_sum)
+            list_cum_norm.append(norm_cum)
+
+        if not years:
+            continue
+
+        # --- trend helper ---
+        def trend_block(var_list):
+            fit_mask = ~np.isnan(var_list)
+            fit_years = np.array(years)[fit_mask]
+            fit_vals = np.array(var_list)[fit_mask]
+            if len(fit_years) > 1:
+                m, b = np.polyfit(fit_years, fit_vals, 1)
+                r2 = np.corrcoef(fit_years, fit_vals)[0, 1] ** 2
+                return dict(Trend=float(m), Intercept=float(b), R2=float(r2),
+                            min=float(np.nanmin(fit_vals)), avg=float(np.nanmean(fit_vals)), max=float(np.nanmax(fit_vals)))
+            return dict(Trend=np.nan, Intercept=np.nan, R2=np.nan, min=np.nan, avg=np.nan, max=np.nan)
+
+        results[pollen_type] = {
+            "K10": trend_block(starts),
+            "K90": trend_block(ends),
+            "Length": trend_block(lengths),
+            "CP": trend_block(total_yearly)
+        }
+
+        # === RISANJE PANELNE POSTAVITVE ===
+        fig, ax = plt.subplots(ncols=3, nrows=2, figsize=(16, 10), constrained_layout=True, dpi=300)
+        x = list(range(365))
+        mean_y = np.nanmean(list_y, axis=0)
+        mean_cum = np.nanmean(list_cum, axis=0)
+        mean_cum_norm = np.nanmean(list_cum_norm, axis=0)
+
+        # (0,0) Dnevne in zglajene dinamike
+        for idx, y in enumerate(list_y):
+            ax[0, 0].plot(x, y, color=colors[years[idx]], alpha=0.5, linewidth=lw_1)
+        smooth = pd.Series(mean_y).rolling(window=ma, center=True, min_periods=1).mean()
+        ax[0, 0].plot(x, mean_y, 'k-', linewidth=1.5, label="Povprečje")
+        ax[0, 0].plot(x, smooth, 'r--', linewidth=2.0, label=f"Zglajeno ({ma}-dni)")
+        ax[0, 0].set_title("Dnevne vrednosti in zglajena dinamika")
+        ax[0, 0].legend(fontsize=8)
+        ax[0, 0].grid(True, linestyle='--', alpha=0.4)
+
+        # (0,1) Nenormirana kumulativna vsota
+        for idx, cum in enumerate(list_cum):
+            ax[0, 1].plot(x, cum, color=colors[years[idx]], alpha=0.7, linewidth=lw_1)
+        ax[0, 1].plot(x, mean_cum, 'k-', linewidth=lw_2, label="Povprečje")
+        ax[0, 1].set_title("Letna kumulativna vsota (nenormirana)")
+        ax[0, 1].grid(True, linestyle='--', alpha=0.4)
+
+        # (0,2) Normirana kumulativna vsota
+        for idx, norm_cum in enumerate(list_cum_norm):
+            ax[0, 2].plot(x, norm_cum, color=colors[years[idx]], alpha=0.7, linewidth=lw_1)
+        ax[0, 2].plot(x, mean_cum_norm, 'k-', linewidth=lw_2, label="Povprečje")
+        ax[0, 2].axhline(0.025, color='grey', linestyle='--', alpha=0.6)
+        ax[0, 2].axhline(0.975, color='grey', linestyle='--', alpha=0.6)
+        ax[0, 2].set_title("Normirana kumulativna vsota (0–1)")
+        ax[0, 2].grid(True, linestyle='--', alpha=0.4)
+
+        # (1,0) Začetek sezone (trend)
+        plot_season_start(ax[1, 0], years, starts, colors, lw_1, "Začetek sezone (2.5%)")
+
+        # (1,1) Konec sezone (trend)
+        plot_season_end(ax[1, 1], years, ends, colors, lw_1, "Konec sezone (97.5%)")
+
+        # (1,2) Letna koncentracija (trend)
+        plot_yearly_concentration(ax[1, 2], years, total_yearly, colors, lw_1, "Letna koncentracija peloda")
+
+        file_path = os.path.join(output_path, f"02_{pollen_type}_{location}.png")
+        plt.savefig(file_path, dpi=300, bbox_inches='tight')
+        plt.close()
+
+        print(f"      - Grafi ustvarjeni za {pollen_type}")
+
+    # --- Shranjevanje rezultatov ---
+    os.makedirs("results", exist_ok=True)
+    with open(os.path.join("results", f"{location}_results_norm.json"), "w") as f:
+        json.dump(results, f, indent=4)
+    
+    
+    for key in res_2:
+        print(f"    - {key}: {len(res_2[key])} entries")
+    print("    - Saving res_2 results...")
+    with open(os.path.join("results", f"{location}_results_2_norm.json"), "w") as f:
+        json.dump(res_2, f, indent=4, default=numpy_encoder)
+
+    print(f"    - Rezultati shranjeni v 'results/{location}_results_norm.json' in 'results/{location}_results_2_norm.json'")
+
+    return [results, res_2, colors]
+
+def numpy_encoder(obj):
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    # Za vsak primer obravnavamo tudi NaN, ki ni standarden JSON tip
+    elif np.isnan(obj):
+        return None 
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+    
 def auc_and_ci_start_stop(results:dict, colors:dict, location:str):
     df_res_2 = pd.DataFrame(results)
     print("    - Generating AUC and CI plots...")
@@ -525,7 +729,7 @@ def auc_and_ci_start_stop(results:dict, colors:dict, location:str):
     ax[1].grid(True, linestyle='--', alpha=0.3)
 
     ##----------------------------------- Order of change------------------------------------------##
-    var = "Sart-End interval"
+    var = "Length"
     mean_K10 = df_res_2.groupby('Type')[var].mean().sort_values().to_dict()
     sns.boxplot(
         data=df_res_2, x="Type", y=var, order=mean_values.index, fliersize=0, ax=ax[2],
@@ -576,6 +780,8 @@ def auc_and_ci_start_stop(results:dict, colors:dict, location:str):
     plt.xticks(rotation=45, ha="right", fontsize=10)
     plt.grid(True, linestyle='--', alpha=0.3)
     plt.tight_layout()
+    
+    
     file_path = path_for_export(lv1=base_path, name=f"AUC_CI_90_{location}b.png")
     plt.savefig(file_path, dpi=150)
     plt.show()

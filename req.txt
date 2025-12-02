@@ -1,0 +1,25 @@
+# Requirements for Pollen Imputation Project
+
+# Core Data Manipulation and Notebook Environment
+pandas>=2.0.0            # For all DataFrame operations
+numpy>=1.20              # For numerical operations
+jupyterlab>=4.0          # Or jupyter if you prefer the classic notebook interface
+tqdm>=4.60               # For progress bars (used in load_data)
+openpyxl>=3.0.0          # Backend for reading modern .xlsx files (used by pandas)
+statsmodels
+
+# Time Series and Statistical Models
+prophet>=1.1.0           # The original imputation model
+scikit-learn>=1.0        # For mean_absolute_error and other metrics
+
+# Machine Learning Imputation Model (Gradient Boosting)
+lightgbm>=4.0.0          # Recommended powerful model for non-linear time series
+# If you decide to try XGBoost as well, uncomment the line below:
+# xgboost>=1.6
+
+# Visualization
+matplotlib>=3.5          # Core plotting library
+seaborn>=0.11            # For enhanced statistical visualization
+
+# Dependency Fixes (Ensures compatibility between Dask/LightGBM and Pandas)
+dask[dataframe]>=2023.08.0

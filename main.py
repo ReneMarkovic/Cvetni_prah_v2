@@ -62,6 +62,7 @@ def main():
                     step_name = "Step_4_Type_Specific"
                     print(f"Step 4: Performing type-specific activation analysis...")
                     results_1, results_2, colors = an.type_specific_activation(df_processed, location, step_name=step_name)
+                    step_name = "Step_4_AUC_and_CI"
                     pl.plot_auc_and_ci(results_2, colors, location, step_name)
                     #an.auc_and_ci_start_stop(df_processed, results_1, location)
                     print("Type-specific analysis complete.")
