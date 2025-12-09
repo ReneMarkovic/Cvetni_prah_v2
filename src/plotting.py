@@ -35,9 +35,9 @@ def plot_global_data(df_processed, location, step_name):
 
     plt.figure(figsize=(20,4))
     plt.plot(x_week,y_week["Value"])
-    plt.title("Dnevna koncentracije pelodov")
-    plt.xlabel("Datum")
-    plt.ylabel("Koncentracija pelodov")
+    plt.title("Daily pollen concentration")
+    plt.xlabel("Date")
+    plt.ylabel("Pollen concentration")
     plt.xlim([datetime.datetime(2002,1,1),datetime.datetime(2023,12,31)])
     plt.xticks(np.arange(datetime.datetime(2002,1,1),datetime.datetime(2023,12,31),step=datetime.timedelta(days=365)))
     plt.xticks(rotation=45,size=12, ha = 'right')
@@ -48,9 +48,9 @@ def plot_global_data(df_processed, location, step_name):
 
     plt.figure(figsize=(20,4))
     plt.plot(x_day,y_day["Value"])
-    plt.title("Dnevna koncentracije pelodov")
-    plt.xlabel("Datum")
-    plt.ylabel("Koncentracija pelodov")
+    plt.title("Daily pollen concentration")
+    plt.xlabel("Date")
+    plt.ylabel("Pollen concentration")
 
     year = 2019
     quarterly_ticks = pd.date_range(start=datetime.datetime(year-1, 1, 1), 
@@ -67,7 +67,7 @@ def plot_global_data(df_processed, location, step_name):
     plt.figure(figsize=(20, 6))
 
     # Group the data by 'Date' and 'Type' to create the stacked bar plot data
-    df_grouped = df_processed.groupby(['Date', 'Type'])['Value'].sum().unstack().fillna(0)
+    df_grouped = df_processed.groupby(['Date','Latinica'])['Value'].sum().unstack().fillna(0)
 
     # Filter the data to include only the dates within the desired range
     df_grouped_plot = df_grouped.loc[(df_grouped.index >= datetime.datetime(year - 1, 1, 1)) & 
@@ -77,9 +77,9 @@ def plot_global_data(df_processed, location, step_name):
     ax = df_grouped_plot.plot(kind='bar', stacked=True, figsize=(20, 6), width=1)
 
     # Set title and labels
-    plt.title('Prispevek posameznih tipov vegetacije')
-    plt.xlabel('Datum')
-    plt.ylabel('Koncentracija pelodov')
+    plt.title('Contribution of individual vegetation types')
+    plt.xlabel('Date')
+    plt.ylabel('Pollen concentration')
 
     # Generate quarterly x-ticks based on the actual date range from the plot
     quarterly_ticks = pd.date_range(start=datetime.datetime(year-1, 1, 1), 
@@ -96,7 +96,7 @@ def plot_global_data(df_processed, location, step_name):
     plt.grid(axis='y', linestyle='--', alpha=0.7)
 
     # Position the legend outside the plot
-    plt.legend(title='Tip vegetacije', bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.legend(title='Vegetation Type', bbox_to_anchor=(1.05, 1), loc='upper left')
 
 
     path_for_fig = os.path.join(output_path,f"{location}_Fig_01c.png")
@@ -106,7 +106,7 @@ def plot_global_data(df_processed, location, step_name):
 
 def plot_completeness_analysis(location, step_name):
     """Generate and save completeness analysis by year and type for the provided location."""
-    
+    print(f"Generating completeness analysis for {location}...")
     # Define the base path for saving plots
     base_path = generate_base_path(location)
     output_path = path_for_export(lv1=base_path, lv2=step_name)
@@ -132,14 +132,14 @@ def plot_completeness_analysis(location, step_name):
     df_raw["Month"] = df_raw["Date"].dt.month
 
     # Completeness by Year and Type
-    dg = df_raw.groupby(["Type", "Year"])
-    completeness = {"Year": [], "Type": [], "N_nan": [], "N_all": [], "Percentage": []}
+    dg = df_raw.groupby(["Latinica", "Year"])
+    completeness = {"Year": [],"Pollen taxa": [], "N_nan": [], "N_all": [], "Percentage": []}
 
     for (data_type, year), data_group in dg:
         N_nan = data_group["Value"].isna().sum()
         N_all = len(data_group)
         completeness["Year"].append(year)
-        completeness["Type"].append(data_type)
+        completeness["Pollen taxa"].append(data_type)
         completeness["N_nan"].append(N_nan)
         completeness["N_all"].append(N_all)
         completeness["Percentage"].append((1.0 - N_nan / N_all) * 100)
@@ -148,26 +148,26 @@ def plot_completeness_analysis(location, step_name):
     df_completeness = pd.DataFrame(completeness)
 
     # Pivot Table to Show Completeness by Year and Type
-    completeness_pivot = df_completeness.pivot(index="Year", columns="Type", values="Percentage").sort_index(ascending=False)
+    completeness_pivot = df_completeness.pivot(index="Year", columns="Pollen taxa", values="Percentage").sort_index(ascending=False)
     avg_completeness = completeness_pivot.mean(axis=1).sort_index(ascending=True)
 
     # Plot Completeness Heatmap and Average Completeness Bar Chart
     fig, ax = plt.subplots(ncols=2, figsize=(12, 6.5), gridspec_kw={'width_ratios': [4, 1]}, dpi=150, facecolor='lightblue')
     sns.heatmap(completeness_pivot, ax=ax[0], cbar=True, cmap="viridis", annot=True, fmt=".1f", annot_kws={"size": 8})
-    ax[0].set_xlabel("Vrsta")
+    ax[0].set_xlabel("Pollen taxa")
     ax[0].set_xticklabels(ax[0].get_xticklabels(), rotation=45, horizontalalignment='right')
-    ax[0].set_ylabel("Leto")
-    ax[0].set_title("Popolnost podatkov glede na vrsto in leto (%)")
+    ax[0].set_ylabel("Year")
+    ax[0].set_title("Data completeness by pollen taxa and year (%)")
 
     avg_completeness.plot(kind='barh', ax=ax[1], color='skyblue')
     ax[1].set_xlim(50, 100)
     ax[1].grid(axis='x')
-    ax[1].set_xlabel("Popolnost podatkov (%)")
-    ax[1].set_ylabel("Leto")
-    ax[1].set_title("Povprečna popolnost podatkov")
+    ax[1].set_xlabel("Data completeness (%)")
+    ax[1].set_ylabel("Year")
+    ax[1].set_title("Average data completeness")
 
     plt.tight_layout()
-    save_plot(output_path, location, "Letna_popolnost_podatkov")
+    save_plot(output_path, location, "Annual_data_completeness")
 
     # Monthly Completeness Heatmap
     df_raw["Year_int"] = df_raw["Year"] - df_raw["Year"].min()
@@ -186,15 +186,14 @@ def plot_completeness_analysis(location, step_name):
     cmap = ListedColormap(sns.color_palette("RdBu", 10).as_hex()[::-1])
     fig, ax = plt.subplots(figsize=(9, 8), dpi=150, facecolor='lightblue')
     sns.heatmap(data, ax=ax, cbar=True, cmap=cmap, annot=True, fmt=".1f", annot_kws={"size": 8}, linecolor='white', linewidths=0.5)
-    ax.set_xlabel("Mesec")
-    ax.set_xticklabels(["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Avg", "Sep", "Okt", "Nov", "Dec"], rotation=45, horizontalalignment='right')
-    ax.set_ylabel("Leto")
+    ax.set_xlabel("Month")
+    ax.set_xticklabels(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], rotation=45, horizontalalignment='right')
+    ax.set_ylabel("Year")
     ax.set_yticklabels(range(int(df_raw["Year"].min()), int(df_raw["Year"].max()) + 1), rotation=0)
     ax.invert_yaxis()
-    ax.set_title("Popolnost podatkov glede na mesec in leto (%)")
-
+    ax.set_title("Data completeness by month and year (%)")
     plt.tight_layout()
-    save_plot(output_path, location, "Mesečna_popolnost_podatkov")
+    save_plot(output_path, location, "Monthly_data_completeness")
 
 def plot_auc_and_ci(results, colors, location, step_name):
     df_res_2 = pd.DataFrame(results)
@@ -204,63 +203,67 @@ def plot_auc_and_ci(results, colors, location, step_name):
     
     print(f"Plotting AUC and CI for {location} PANEL A...")
     ##----------------------------------- Season start ------------------------------------------##
-    fig, ax = plt.subplots(ncols=3, nrows=1, figsize=(14, 7),
+    fig, ax = plt.subplots(ncols=3, nrows=1, figsize=(18, 7),
                            gridspec_kw={'width_ratios': [1, 1, 1]},
                            dpi=150, facecolor='white')
     fig.subplots_adjust(hspace=0.3, wspace=0.3)
     var = "Start"
-    mean_values = df_res_2.groupby('Type')[var].mean().sort_values()
+    mean_values = df_res_2.groupby('Pollen taxa')[var].mean().sort_values()
     iterate = mean_values.index.values
-    sns.boxplot(data=df_res_2, x="Type", y=var, order=mean_values.index, fliersize=0, ax=ax[0], color="#90caf9")
+    sns.boxplot(data=df_res_2, x="Pollen taxa", y=var, order=mean_values.index, fliersize=0, ax=ax[0], color="#90caf9")
     for i, tip in enumerate(iterate):
-        df_filtered = df_res_2[(df_res_2["Type"] == tip)].dropna(subset=["Year", var])
+        df_filtered = df_res_2[(df_res_2["Pollen taxa"] == tip)].dropna(subset=["Year", var])
         dfs = df_filtered.sort_values("Year")[var].values
         x = df_filtered.sort_values("Year")["Year"].values
         if len(x) > 0 and len(dfs) > 0:
             color_palette = [colors[leto] for leto in x]
             ax[0].scatter([i] * len(x), dfs, color=color_palette, s=35, alpha=0.7, edgecolor='k', linewidth=0.5)
-    ax[0].set_xlabel("Vrsta", fontsize=12)
-    ax[0].set_ylabel("Pričetek sezone", fontsize=12)
+    ax[0].set_xlabel("Pollen taxa", fontsize=12)
+    ax[0].set_ylabel("Season start (day)", fontsize=12)
     ax[0].set_xticklabels(ax[0].get_xticklabels(), rotation=45, ha='right', fontsize=10)
-    ax[0].set_title("Začetek sezone (TH = 2.5%)", fontsize=14)
+    ax[0].set_title("Season start (TH = 2.5%)", fontsize=14)
     ax[0].grid(True, linestyle='--', alpha=0.3)
-
+    ax[0].set_ylim([0, 350])
     print(f"Plotting AUC and CI for {location} PANEL B...")
     ##----------------------------------- Season End ------------------------------------------##
     var = "End"
-    sns.boxplot(data=df_res_2, x="Type", y=var, order=mean_values.index, fliersize=0, ax=ax[1], color="#a5d6a7")
+    sns.boxplot(data=df_res_2, x="Pollen taxa", y=var, order=mean_values.index, fliersize=0, ax=ax[1], color="#a5d6a7")
     for i, tip in enumerate(iterate):
-        df_filtered = df_res_2[(df_res_2["Type"] == tip)].dropna(subset=["Year", var])
+        df_filtered = df_res_2[(df_res_2["Pollen taxa"] == tip)].dropna(subset=["Year", var])
         dfs = df_filtered.sort_values("Year")[var].values
         x = df_filtered.sort_values("Year")["Year"].values
         if len(x) > 0 and len(dfs) > 0:
             color_palette = [colors[leto] for leto in x]
             ax[1].scatter([i] * len(x), dfs, color=color_palette, s=35, alpha=0.7, edgecolor='k', linewidth=0.5)
-    ax[1].set_xlabel("Vrsta", fontsize=12)
-    ax[1].set_ylabel("Konec sezone", fontsize=12)
+    ax[1].set_xlabel("Pollen taxa", fontsize=12)
+    ax[1].set_ylabel("Season end (day)", fontsize=12)
     ax[1].set_xticklabels(ax[1].get_xticklabels(), rotation=45, ha='right', fontsize=10)
-    ax[1].set_title("Konec sezone (TH = 97.5%)", fontsize=14)
+    ax[1].set_title("Season end (TH = 97.5%)", fontsize=14)
     ax[1].grid(True, linestyle='--', alpha=0.3)
-
+    ax[1].set_ylim([0, 350])
     print(f"Plotting AUC and CI for {location} PANEL C...")
     ##----------------------------------- Order of change------------------------------------------##
     var = "Length"
-    mean_K10 = df_res_2.groupby('Type')[var].mean().sort_values().to_dict()
-    sns.boxplot(data=df_res_2, x="Type", y=var, order=mean_values.index, fliersize=0, ax=ax[2], color="#ffe082")
+    mean_K10 = df_res_2.groupby('Pollen taxa')[var].mean().sort_values().to_dict()
+    sns.boxplot(data=df_res_2, x="Pollen taxa", y=var, order=mean_values.index, fliersize=0, ax=ax[2], color="#ffe082")
     for i, tip in enumerate(iterate):
-        df_filtered = df_res_2[(df_res_2["Type"] == tip)].dropna(subset=["Year", var])
+        df_filtered = df_res_2[(df_res_2["Pollen taxa"] == tip)].dropna(subset=["Year", var])
         dfs = df_filtered.sort_values("Year")[var].values
         x = df_filtered.sort_values("Year")["Year"].values
         if len(dfs) > 0 and len(x) > 0:
             color_palette = [colors[leto] for leto in x]
             ax[2].scatter([i] * len(x), dfs, color=color_palette, s=35, alpha=0.5, edgecolor='k', linewidth=0.5)
-    ax[2].set_xlabel("Vrsta", fontsize=12)
-    ax[2].set_ylabel("Interval Start-End", fontsize=12)
+    ax[2].set_xlabel("Pollen taxa", fontsize=12)
+    ax[2].set_ylabel("Interval Start-End (days)", fontsize=12)
     ax[2].set_xticklabels(ax[2].get_xticklabels(), rotation=45, ha='right', fontsize=10)
-    ax[2].set_title("Trajanje sezone", fontsize=14)
+    ax[2].set_title("Season length", fontsize=14)
     ax[2].grid(True, linestyle='--', alpha=0.3)
-
+    ax[2].set_ylim([0, 350])
+    
     file_path = os.path.join(base_path, f"AUC_CI_{location}a.png")
+    print(file_path)
+    if not os.path.exists(base_path):
+        os.makedirs(base_path)
     plt.tight_layout()
     plt.savefig(file_path, dpi=150)
     plt.close()
@@ -269,22 +272,24 @@ def plot_auc_and_ci(results, colors, location, step_name):
     print(f"Plotting AUC and CI for {location} RATE...")
     plt.figure(figsize=(10, 5), dpi=150, facecolor='white')
     plt.title("Hitrost spremembe", fontsize=15)
-    mean_values = df_res_2.groupby('Type')['rate'].mean().sort_values()
+    mean_values = df_res_2.groupby('Pollen taxa')['rate'].mean().sort_values()
     iterate = mean_values.index.values
-    sns.boxplot(data=df_res_2, x="Type", y="rate", order=mean_values.index, fliersize=0, color="#ce93d8")
+    sns.boxplot(data=df_res_2, x="Pollen taxa", y="rate", order=mean_values.index, fliersize=0, color="#ce93d8")
     for i, tip in enumerate(iterate):
-        df_filtered = df_res_2[(df_res_2["Type"] == tip)].dropna(subset=["Year", "rate"])
+        df_filtered = df_res_2[(df_res_2["Pollen taxa"] == tip)].dropna(subset=["Year", "rate"])
         dfs = df_filtered.sort_values("Year")["rate"].values
         x = df_filtered.sort_values("Year")["Year"].values
         if len(x) > 0 and len(dfs) > 0:
             color_palette = [colors[leto] for leto in x]
             plt.scatter([i] * len(x), dfs, color=color_palette, s=35, alpha=0.7, edgecolor='k', linewidth=0.5)
-    plt.xlabel("Vrsta", fontsize=12)
-    plt.ylabel("Hitrost spremembe", fontsize=12)
+    plt.xlabel("Pollen taxa", fontsize=12)
+    plt.ylabel("Rate of change", fontsize=12)
     plt.xticks(rotation=45, ha="right", fontsize=10)
     plt.grid(True, linestyle='--', alpha=0.3)
     plt.tight_layout()
     file_path = os.path.join(base_path, f"AUC_CI_{location}b.png")
+    if not os.path.exists(base_path):
+        os.makedirs(base_path)
     plt.savefig(file_path, dpi=150)
     plt.close()
 
@@ -312,10 +317,10 @@ def plot_correlation_with_time_series(correlation_dict, step_name):
         # Left subplot: Time Series
         for column in df_combined.columns:
             axes[0].plot(df_combined.index, df_combined[column], label=column, alpha=0.7)
-        axes[0].set_title(f'Časovne vrste koncentracije cvetnega prahu za {pollen_type}')
-        axes[0].set_xlabel('Datum')
-        axes[0].set_ylabel('Koncentracija')
-        axes[0].legend(title='Lokacija')
+        axes[0].set_title(f'Time series of pollen concentration for {pollen_type}')
+        axes[0].set_xlabel('Date')
+        axes[0].set_ylabel('Concentration')
+        axes[0].legend(title='Location')
         axes[0].grid(True)
         
         # Right subplot: Correlation Heatmap
@@ -325,9 +330,9 @@ def plot_correlation_with_time_series(correlation_dict, step_name):
                     cmap='coolwarm', 
                     fmt=".2f", 
                     linewidths=.5, 
-                    cbar_kws={'label': 'Pearsonov korelacijski koeficient'},
+                    cbar_kws={'label': 'Pearson correlation coefficient'},
                     mask=mask)
-        axes[1].set_title(f'Korelacijska matrika (zgornji trikotnik) za {pollen_type}')
+        axes[1].set_title(f'Correlation matrix (upper triangle) for {pollen_type}')
         axes[1].tick_params(axis='x', rotation=45)
         axes[1].tick_params(axis='y', rotation=0)
 

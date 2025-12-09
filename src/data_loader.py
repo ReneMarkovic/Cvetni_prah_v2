@@ -26,6 +26,29 @@ rastline_skupine = {
     'OLJKA': 'Drevesa'
 }
 
+
+slo_to_lat = {
+    'AMBROZIJA': r'Ambrosia sp.',
+    'BOR': r'Pinus spp.',
+    'BREZA': r'Betula spp.',
+    'BUKEV': r'Fagus sp.',
+    'CIPRESOVKE': r'Cupressaceae',
+    'GABER': r'Carpinus spp.',
+    'HRAST': r'Quercus spp.',
+    'JELŠA': r'Alnus spp.',
+    'JESEN': r'Fraxinus spp.',
+    'KISLICA': r'Rumex spp.',
+    'KOPRIVOVKE': r'Urticaceae',
+    'LESKA': r'Corylus sp.',
+    'OLJKA': r'Olea sp.',
+    'PELINKOVEC': r'Artemisia spp.',
+    'PELIN': r'Artemisia spp.',
+    'PLATANA': r'Platanus spp.',
+    'PRAVI KOSTANJ': r'Castanea sp.',
+    'TRAVE': r'Poaceae',
+    'TRPOTEC': r'Plantago spp.'
+}
+
 def impute_missing_with_prophet(dates, y):
     """
     Imputes missing values (NaN) in a time series using Prophet,
@@ -98,7 +121,6 @@ def load_raw_data(path):
     vales = []
     N = len(df_raw.sheet_names)
     for sheet in tqdm(df_raw.sheet_names,total = N, desc = "Reading sheets"):
-        print(sheet)
         df = df_raw.parse(sheet, skiprows=0)
         if "Datum" in df.columns:
             pass
@@ -124,6 +146,8 @@ def load_raw_data(path):
     # Clean "Value" column
     draw_data["Value"] = draw_data["Value"].astype(str).str.replace("x", "").str.replace(",", "")
     draw_data["Value"] = pd.to_numeric(draw_data["Value"], errors="coerce")
+    print("Translating 'Type' to Latinica...")
+    draw_data["Latinica"] = draw_data["Type"].apply(lambda x: slo_to_lat[x])
     return draw_data
 
 def load_data(path, Maribor = False):
@@ -133,7 +157,7 @@ def load_data(path, Maribor = False):
     vales = []
     N = len(df_raw.sheet_names)
     for sheet in tqdm(df_raw.sheet_names,total = N, desc = "Reading sheets"):
-        print(f"\n{sheet}")
+        #print(f" {sheet}\n")
         df = df_raw.parse(sheet, skiprows=0)
         if "Datum" in df.columns:
             pass
@@ -151,34 +175,39 @@ def load_data(path, Maribor = False):
     df_processed = pd.DataFrame(df_procesed)
     
     remove = []
-    for i,ii in tqdm(df_processed.iterrows(),total = len(df_processed),desc="Checking dates"):
+    for i,ii in tqdm(df_processed.iterrows(),total = len(df_processed), desc="Checking dates"):
+        #print(ii["Date"])
         try: # Try to convert a string to a date
             datetime.datetime.strptime(ii["Date"],"%m-%d-%Y")
         except: # If it fails, then it is a leap year
             remove.append(i)
-
-    tqdm.pandas(desc="Removing non-leap 29/02/")
+    
+    
+    print(f"Removing {len(remove)} invalid dates (likely leap year 29/02) from the dataset.")
+    df_processed = df_processed.apply(lambda x: x.drop(remove) if x.name == 'Date' else x, axis=0)
     df_processed = df_processed.drop(remove)
 
-    tqdm.pandas(desc="Converting dates")
+    print("Converting 'Date' column to datetime...")
     df_processed["Date"] = pd.to_datetime(df_processed["Date"],format="%m-%d-%Y")
     df_processed["Year"] = df_processed["Date"].dt.year
 
-    tqdm.pandas(desc="Cleaning values")
+    tqdm.pandas(desc="Cleaning values: removing 'x' and ','")
     df_processed["Value"] = df_processed["Value"].progress_apply(lambda x: str(x).replace("x",""))
+    
+    tqdm.pandas(desc="Replaceing ',' in values")
     df_processed["Value"] = df_processed["Value"].progress_apply(lambda x: str(x).replace(",",""))
+    
+    print("Converting 'Value' column to numeric...")
     df_processed["Value"] = pd.to_numeric(df_processed["Value"],errors="coerce")
 # ----------------------------------------------------------------------
     # 💥 Imputation Step 💥
     # ----------------------------------------------------------------------
-    print("\nStarting Prophet Imputation...")
+    #print("\nStarting Prophet Imputation...")
     
     # Group by 'Type' and apply the imputation function to each group
-    df_processed = df_processed.groupby("Type", group_keys=False).progress_apply(
-        apply_prophet_imputation
-    ).reset_index(drop=True)
+    #df_processed = df_processed.groupby("Type", group_keys=False).progress_apply(apply_prophet_imputation).reset_index(drop=True)
 
-    print("Imputation complete.")
+    #print("Imputation complete.")
     # ----------------------------------------------------------------------
     
     # The NaNs have now been filled by Prophet's predictions (or mean fallback),
@@ -186,12 +215,18 @@ def load_data(path, Maribor = False):
     # failed completely or you still have NaNs for some other reason, 
     # it provides a final safety net.
     # We will keep it but it should only apply to cases where Prophet could not run.
+    print("Final check: Filling any remaining NaNs with 0...")
     df_processed["Value"] = df_processed["Value"].fillna(0) 
-
+    
+    print("Adding 'Skupina' and 'Latinica' columns...")
     df_processed["Skupina"] = df_processed["Type"].progress_apply(lambda x: rastline_skupine[x])
+    print("Translating 'Type' to Latinica...")
+    df_processed["Latinica"] = df_processed["Type"].progress_apply(lambda x: slo_to_lat[x])
     if Maribor:
         #postavi vse vrednosti v januarju, februarju, novembru in decembru na 0
         df_processed.loc[df_processed["Date"].dt.month.isin([1,2,11,12]),"Value"] = 0
+    else:
+        df_processed.loc[df_processed["Date"].dt.month.isin([1,12]),"Value"] = 0
     return df_processed
 
 def process_data(location, Maribor = False):
